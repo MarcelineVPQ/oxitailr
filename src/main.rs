@@ -191,6 +191,7 @@ struct TailLoggerApp {
     settings_dialog: SettingsDialogState,
     show_source_panel: bool,
     show_about_dialog: bool,
+    show_help_dialog: bool,
 }
 
 impl TailLoggerApp {
@@ -280,6 +281,7 @@ impl TailLoggerApp {
             settings_dialog: SettingsDialogState::default(),
             show_source_panel: true,
             show_about_dialog: false,
+            show_help_dialog: false,
         };
 
         // Load saved sources
@@ -1033,11 +1035,90 @@ impl TailLoggerApp {
                     ui.separator();
                     ui.add_space(10.0);
                     ui.label("Built with Rust + egui");
+                    ui.add_space(5.0);
+                    ui.hyperlink_to(
+                        "GitHub: MarcelineVPQ/oxitailr",
+                        "https://github.com/MarcelineVPQ/oxitailr",
+                    );
                     ui.add_space(10.0);
                     if ui.button("Close").clicked() {
                         self.show_about_dialog = false;
                     }
                     ui.add_space(10.0);
+                });
+            });
+    }
+
+    fn render_help_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_help_dialog {
+            return;
+        }
+
+        egui::Window::new("Help")
+            .collapsible(false)
+            .resizable(true)
+            .default_size([500.0, 450.0])
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical().show(ui, |ui| {
+                    ui.heading("Getting Started");
+                    ui.add_space(5.0);
+                    ui.label("Oxitailr is a modern log viewer that supports both local files and remote SSH sources.");
+                    ui.add_space(10.0);
+
+                    ui.heading("Adding Sources");
+                    ui.add_space(5.0);
+                    ui.label("• Local File: Click '+ Local File' to browse and open a local log file");
+                    ui.label("• SSH Source: Click '+ SSH' to connect to a remote server via SSH");
+                    ui.add_space(10.0);
+
+                    ui.heading("Filtering");
+                    ui.add_space(5.0);
+                    ui.label("• Filter bar: Type a regex pattern to filter log lines");
+                    ui.label("• Level filters: Use checkboxes to show/hide specific log levels");
+                    ui.label("• Advanced: Click 'Advanced' to build complex filter rules");
+                    ui.add_space(10.0);
+
+                    ui.heading("Search");
+                    ui.add_space(5.0);
+                    ui.label("• Use the 'Search' field to highlight matching text");
+                    ui.label("• Matching lines will have a yellow background");
+                    ui.add_space(10.0);
+
+                    ui.heading("Keyboard Shortcuts");
+                    ui.add_space(5.0);
+                    ui.label("• Ctrl+F: Focus filter field");
+                    ui.label("• Ctrl+G: Focus search field");
+                    ui.label("• Ctrl+L: Clear log view");
+                    ui.label("• Ctrl+O: Open local file");
+                    ui.label("• Home/End: Jump to first/last line");
+                    ui.label("• Page Up/Down: Scroll by page");
+                    ui.add_space(10.0);
+
+                    ui.heading("Settings");
+                    ui.add_space(5.0);
+                    ui.label("• Font size and line spacing: Adjust display preferences");
+                    ui.label("• Auto-scroll: Keep view at the bottom as new lines arrive");
+                    ui.label("• Buffer size: Maximum number of lines to keep in memory");
+                    ui.label("• Highlight rules: Configure custom highlighting for patterns");
+                    ui.add_space(10.0);
+
+                    ui.heading("SSH Authentication");
+                    ui.add_space(5.0);
+                    ui.label("SSH connections try the following methods in order:");
+                    ui.label("1. Specified key file (if provided)");
+                    ui.label("2. Default keys: ~/.ssh/id_ed25519, id_rsa, id_ecdsa");
+                    ui.label("3. Password (if provided)");
+                    ui.label("Passwords are stored encrypted locally.");
+                    ui.add_space(15.0);
+
+                    ui.separator();
+                    ui.add_space(10.0);
+                    ui.vertical_centered(|ui| {
+                        if ui.button("Close").clicked() {
+                            self.show_help_dialog = false;
+                        }
+                    });
                 });
             });
     }
@@ -1110,12 +1191,6 @@ impl eframe::App for TailLoggerApp {
 
         ctx.request_repaint_after(std::time::Duration::from_millis(self.update_interval_ms));
 
-        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.always_on_top {
-            egui::WindowLevel::AlwaysOnTop
-        } else {
-            egui::WindowLevel::Normal
-        }));
-
         // Handle SSH dialog
         match render_ssh_dialog(ctx, &mut self.ssh_dialog, &self.ssh_sources_path) {
             SshDialogResult::None => {}
@@ -1142,6 +1217,7 @@ impl eframe::App for TailLoggerApp {
         }
 
         self.render_about_dialog(ctx);
+        self.render_help_dialog(ctx);
 
         // Handle settings dialog
         match render_settings_dialog(
@@ -1169,6 +1245,13 @@ impl eframe::App for TailLoggerApp {
         }
 
         render_highlight_dialog(ctx, &mut self.highlight_dialog, &mut self.highlight_rules);
+
+        // Apply window level (always on top) after settings are updated
+        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.always_on_top {
+            egui::WindowLevel::AlwaysOnTop
+        } else {
+            egui::WindowLevel::Normal
+        }));
 
         // Top panel with controls
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
@@ -1198,6 +1281,7 @@ impl eframe::App for TailLoggerApp {
                     ui.separator();
 
                     if ui.button("❓  Help").clicked() {
+                        self.show_help_dialog = true;
                         ui.close_menu();
                     }
 
