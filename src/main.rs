@@ -45,7 +45,8 @@ fn load_icon() -> Option<IconData> {
 }
 
 /// Application theme
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Theme {
     Light,
     Dark,
@@ -249,7 +250,7 @@ impl TailLoggerApp {
             runtime,
             selected_source: None,
             plain_parser: PlainParser::new(),
-            use_auto_parser: true,
+            use_auto_parser: config.general.auto_parse_json,
             filter_engine: FilterEngine::new(),
             filter_text: String::new(),
             filter_error: None,
@@ -268,7 +269,7 @@ impl TailLoggerApp {
             builder_is_exclude: false,
             auto_scroll: config.general.follow,
             search_text: String::new(),
-            font_size: 13.0,
+            font_size: config.general.font_size,
             new_lines_received: false,
             scroll_to_row: None,
             current_scroll_row: 0,
@@ -276,10 +277,10 @@ impl TailLoggerApp {
             show_timestamps: config.general.show_timestamps,
             show_source: config.general.show_source,
             wrap_lines: config.general.wrap_lines,
-            line_spacing: 1.0,
-            tab_width: 4,
-            update_interval_ms: 100,
-            theme: Theme::System,
+            line_spacing: config.general.line_spacing,
+            tab_width: config.general.tab_width,
+            update_interval_ms: config.general.update_interval_ms,
+            theme: config.general.theme,
             highlight_rules: default_highlight_rules(),
             highlight_dialog: HighlightDialogState::default(),
             saved_ssh_sources: Vec::new(),
@@ -713,6 +714,12 @@ impl TailLoggerApp {
         self.config.general.wrap_lines = self.wrap_lines;
         self.config.general.follow = self.auto_scroll;
         self.config.general.remember_last_session = self.settings_dialog.remember_last_session;
+        self.config.general.theme = self.theme;
+        self.config.general.font_size = self.font_size;
+        self.config.general.line_spacing = self.line_spacing;
+        self.config.general.tab_width = self.tab_width;
+        self.config.general.update_interval_ms = self.update_interval_ms;
+        self.config.general.auto_parse_json = self.use_auto_parser;
     }
 
     fn update_filter(&mut self) {

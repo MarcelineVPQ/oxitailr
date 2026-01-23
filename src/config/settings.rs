@@ -1,5 +1,6 @@
 use crate::alert::AlertAction;
 use crate::filter::FilterRule;
+use crate::Theme;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -34,6 +35,18 @@ pub struct GeneralConfig {
     pub color_enabled: bool,
     #[serde(default = "default_true")]
     pub remember_last_session: bool,
+    #[serde(default)]
+    pub theme: Theme,
+    #[serde(default = "default_font_size")]
+    pub font_size: f32,
+    #[serde(default = "default_line_spacing")]
+    pub line_spacing: f32,
+    #[serde(default = "default_tab_width")]
+    pub tab_width: usize,
+    #[serde(default = "default_update_interval")]
+    pub update_interval_ms: u64,
+    #[serde(default = "default_true")]
+    pub auto_parse_json: bool,
 }
 
 fn default_buffer_size() -> usize {
@@ -42,6 +55,22 @@ fn default_buffer_size() -> usize {
 
 fn default_true() -> bool {
     true
+}
+
+fn default_font_size() -> f32 {
+    13.0
+}
+
+fn default_line_spacing() -> f32 {
+    1.0
+}
+
+fn default_tab_width() -> usize {
+    4
+}
+
+fn default_update_interval() -> u64 {
+    100
 }
 
 impl Default for GeneralConfig {
@@ -54,6 +83,12 @@ impl Default for GeneralConfig {
             show_source: true,
             color_enabled: true,
             remember_last_session: true,
+            theme: Theme::default(),
+            font_size: default_font_size(),
+            line_spacing: default_line_spacing(),
+            tab_width: default_tab_width(),
+            update_interval_ms: default_update_interval(),
+            auto_parse_json: true,
         }
     }
 }
