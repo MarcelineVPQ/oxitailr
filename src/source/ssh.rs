@@ -469,6 +469,7 @@ async fn run_ssh_tail(
             msg = channel.wait() => {
                 match msg {
                     Some(russh::ChannelMsg::Data { data }) => {
+                        let bytes_len = data.len() as u64;
                         buffer.push_str(&String::from_utf8_lossy(&data));
 
                         while let Some(pos) = buffer.find('\n') {
@@ -478,16 +479,23 @@ async fn run_ssh_tail(
                             if !line.trim().is_empty() {
                                 line_count += 1;
 
-                                {
-                                    let mut info_guard = info.lock().await;
-                                    info_guard.line_count = line_count;
-                                }
-
                                 let _ = sender.send(SourceEvent::Line {
                                     source: name.clone(),
                                     line: line.trim_end().to_string(),
                                 }).await;
                             }
+                        }
+
+                        // Update info and send status change so main app sees file size
+                        {
+                            let mut info_guard = info.lock().await;
+                            info_guard.line_count = line_count;
+                            let current = info_guard.file_size.unwrap_or(0);
+                            info_guard.file_size = Some(current + bytes_len);
+                            let _ = sender.send(SourceEvent::StatusChange {
+                                source: name.clone(),
+                                info: info_guard.clone(),
+                            }).await;
                         }
                     }
                     Some(russh::ChannelMsg::Eof) => {

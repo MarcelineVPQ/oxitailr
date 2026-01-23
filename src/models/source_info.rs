@@ -42,6 +42,8 @@ pub struct SourceInfo {
     pub status: SourceStatus,
     pub line_count: u64,
     pub enabled: bool,
+    #[serde(default)]
+    pub file_size: Option<u64>,
 }
 
 impl SourceInfo {
@@ -53,6 +55,7 @@ impl SourceInfo {
             status: SourceStatus::Disconnected,
             line_count: 0,
             enabled: true,
+            file_size: None,
         }
     }
 

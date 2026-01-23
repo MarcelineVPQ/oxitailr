@@ -30,7 +30,8 @@ A modern, feature-rich log viewer with GUI interface built in Rust.
 - **Desktop notifications** - Get notified when specific patterns appear in logs
 
 ### User Interface
-- **Tabbed source view** - Switch between sources or view all combined
+- **Tabbed source view** - Switch between multiple open sources
+- **File size display** - Status bar shows current file size
 - **Source panel** - Manage local files and SSH connections
 - **Theme support** - Light, Dark, or System theme (follows OS preference)
 - **Configurable display** - Adjust font size, line spacing, timestamps, and more

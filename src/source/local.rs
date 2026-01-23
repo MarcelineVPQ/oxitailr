@@ -135,9 +135,19 @@ async fn run_local_tail(
         .await
         .with_context(|| format!("Failed to open file: {}", path.display()))?;
 
+    // Initialize file state for rotation detection
+    let initial_inode = get_file_inode(&path).unwrap_or(0);
+    let initial_size = get_file_size(&path).unwrap_or(0);
+    let mut file_state = FileState {
+        inode: initial_inode,
+        last_size: initial_size,
+        last_position: 0,
+    };
+
     {
         let mut info_guard = info.lock().await;
         info_guard.status = SourceStatus::Connected;
+        info_guard.file_size = Some(initial_size);
         let _ = sender
             .send(SourceEvent::StatusChange {
                 source: name.clone(),
@@ -145,14 +155,6 @@ async fn run_local_tail(
             })
             .await;
     }
-
-    // Initialize file state for rotation detection
-    let initial_inode = get_file_inode(&path).unwrap_or(0);
-    let mut file_state = FileState {
-        inode: initial_inode,
-        last_size: get_file_size(&path).unwrap_or(0),
-        last_position: 0,
-    };
 
     let mut reader = BufReader::new(file);
     let mut line = String::new();
@@ -236,6 +238,9 @@ async fn run_local_tail(
                             true
                         } else {
                             file_state.last_size = current_size;
+                            // Update file size in info
+                            let mut info_guard = info.lock().await;
+                            info_guard.file_size = Some(current_size);
                             false
                         }
                     } else {

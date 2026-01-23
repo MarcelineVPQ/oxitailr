@@ -26,9 +26,10 @@ use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use ui::{
-    default_highlight_rules, find_matching_highlight, log_level_color, render_highlight_dialog,
-    render_settings_dialog, render_ssh_dialog, DisplayLine, HighlightDialogState, HighlightRule,
-    SavedSshSource, SettingsDialogResult, SettingsDialogState, SshDialogResult, SshDialogState,
+    default_highlight_rules, find_matching_highlight, format_file_size, log_level_color,
+    render_highlight_dialog, render_settings_dialog, render_ssh_dialog, DisplayLine,
+    HighlightDialogState, HighlightRule, SavedSshSource, SettingsDialogResult,
+    SettingsDialogState, SshDialogResult, SshDialogState,
 };
 
 // Embed the icon at compile time
@@ -1457,6 +1458,16 @@ impl eframe::App for TailLoggerApp {
                 ui.separator();
                 ui.label(format!("Sources: {} connected", connected_count));
 
+                // Show file size for current source
+                if let Some(ref source_name) = self.selected_source {
+                    if let Some(info) = self.source_infos.get(source_name) {
+                        if let Some(size) = info.file_size {
+                            ui.separator();
+                            ui.label(format!("Size: {}", format_file_size(size)));
+                        }
+                    }
+                }
+
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.label("Scroll: Mouse wheel | Home/End | Page Up/Down");
                 });
@@ -1500,14 +1511,13 @@ impl eframe::App for TailLoggerApp {
             }
 
             ui.horizontal(|ui| {
-                let all_selected = self.selected_source.is_none();
-                if ui.selectable_label(all_selected, "All").clicked() {
-                    self.selected_source = None;
+                let source_names: Vec<String> = self.source_infos.keys().cloned().collect();
+
+                // Auto-select first source if none selected
+                if self.selected_source.is_none() && !source_names.is_empty() {
+                    self.selected_source = Some(source_names[0].clone());
                 }
 
-                ui.separator();
-
-                let source_names: Vec<String> = self.source_infos.keys().cloned().collect();
                 for name in &source_names {
                     let is_selected = self.selected_source.as_ref() == Some(name);
                     let info = self.source_infos.get(name);
@@ -1552,47 +1562,59 @@ impl eframe::App for TailLoggerApp {
             let search_lower = self.search_text.to_lowercase();
             let mut local_scroll_row = self.current_scroll_row;
 
+            // Calculate row height including spacing (what show_rows uses internally)
+            let spacing_y = ui.spacing().item_spacing.y;
+            let row_height_with_spacing = row_height + spacing_y;
             let visible_rows = (ui.available_height() / row_height) as usize;
+            let visible_height = ui.available_height();
+            let content_height = total_rows as f32 * row_height_with_spacing;
+            let max_offset = (content_height - visible_height).max(0.0);
 
-            let mut scroll_request: Option<usize> = None;
+            let mut scroll_request: Option<f32> = None;
+            let mut scroll_to_end = false;
             ctx.input(|i| {
                 if i.key_pressed(egui::Key::PageDown) {
                     let new_row = (self.current_scroll_row + visible_rows).min(total_rows.saturating_sub(1));
-                    scroll_request = Some(new_row);
+                    scroll_request = Some(new_row as f32 * row_height_with_spacing);
                     self.auto_scroll = false;
                 }
                 if i.key_pressed(egui::Key::PageUp) {
                     let new_row = self.current_scroll_row.saturating_sub(visible_rows);
-                    scroll_request = Some(new_row);
+                    scroll_request = Some(new_row as f32 * row_height_with_spacing);
                     self.auto_scroll = false;
                 }
                 if i.key_pressed(egui::Key::Home) {
-                    scroll_request = Some(0);
+                    scroll_request = Some(0.0);
                     self.auto_scroll = false;
                 }
                 if i.key_pressed(egui::Key::End) {
-                    scroll_request = Some(total_rows.saturating_sub(1));
+                    scroll_to_end = true;
                     self.auto_scroll = true;
                 }
             });
 
-            if let Some(row) = scroll_request {
-                self.scroll_to_row = Some(row);
-            }
-
-            if self.initial_scroll_pending && total_rows > 0 {
-                self.scroll_to_row = Some(total_rows.saturating_sub(1));
+            // Determine scroll offset
+            let scroll_offset: Option<f32> = if let Some(offset) = scroll_request {
+                self.scroll_to_row = None;
+                Some(offset)
+            } else if scroll_to_end {
+                self.scroll_to_row = None;
+                Some(max_offset)
+            } else if let Some(row) = self.scroll_to_row.take() {
+                Some(row as f32 * row_height_with_spacing)
+            } else if total_rows > 0 && (self.initial_scroll_pending || (self.auto_scroll && self.new_lines_received)) {
                 self.initial_scroll_pending = false;
-            }
-
-            let should_stick = self.auto_scroll && self.new_lines_received;
+                Some(max_offset)
+            } else {
+                None
+            };
 
             let mut scroll_area = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
-                .stick_to_bottom(should_stick);
+                .stick_to_bottom(self.auto_scroll);
 
-            if let Some(row) = self.scroll_to_row.take() {
-                scroll_area = scroll_area.vertical_scroll_offset(row as f32 * row_height);
+            if let Some(offset) = scroll_offset {
+                scroll_area = scroll_area.vertical_scroll_offset(offset);
             }
 
             if self.wrap_lines {
