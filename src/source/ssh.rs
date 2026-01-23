@@ -15,6 +15,7 @@ pub struct SshSource {
     user: String,
     path: String,
     key_path: Option<PathBuf>,
+    password: Option<String>,
     info: Arc<Mutex<SourceInfo>>,
     stop_tx: Option<watch::Sender<bool>>,
 }
@@ -30,6 +31,7 @@ impl SshSource {
             user,
             path,
             key_path: None,
+            password: None,
             info: Arc::new(Mutex::new(info)),
             stop_tx: None,
         }
@@ -42,6 +44,11 @@ impl SshSource {
 
     pub fn with_key_path(mut self, key_path: PathBuf) -> Self {
         self.key_path = Some(key_path);
+        self
+    }
+
+    pub fn with_password(mut self, password: String) -> Self {
+        self.password = Some(password);
         self
     }
 }
@@ -87,6 +94,7 @@ impl Source for SshSource {
         let name = self.name.clone();
         let info = self.info.clone();
         let key_path = self.key_path.clone();
+        let password = self.password.clone();
 
         {
             let mut info_guard = info.lock().await;
@@ -106,6 +114,7 @@ impl Source for SshSource {
                 user,
                 path,
                 key_path,
+                password,
                 name.clone(),
                 info.clone(),
                 sender.clone(),
@@ -148,6 +157,7 @@ async fn run_ssh_tail(
     user: String,
     path: String,
     key_path: Option<PathBuf>,
+    password: Option<String>,
     name: String,
     info: Arc<Mutex<SourceInfo>>,
     sender: mpsc::Sender<SourceEvent>,
@@ -161,29 +171,65 @@ async fn run_ssh_tail(
         .await
         .context("Failed to connect to SSH server")?;
 
-    // Try to authenticate with key
-    let key_path = key_path.unwrap_or_else(|| {
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".ssh")
-            .join("id_rsa")
-    });
+    // Try to authenticate
+    let mut authenticated = false;
 
-    let authenticated = if key_path.exists() {
-        if let Ok(key) = load_secret_key(&key_path, None) {
-            session
-                .authenticate_publickey(&user, Arc::new(key))
-                .await
-                .unwrap_or(false)
-        } else {
-            false
+    // Get SSH directory
+    let ssh_dir = dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".ssh");
+
+    // Build list of keys to try
+    let mut keys_to_try: Vec<PathBuf> = Vec::new();
+
+    // If a specific key path was provided, try it first
+    if let Some(ref kp) = key_path {
+        keys_to_try.push(kp.clone());
+    }
+
+    // Add default key locations
+    keys_to_try.push(ssh_dir.join("id_ed25519"));
+    keys_to_try.push(ssh_dir.join("id_rsa"));
+    keys_to_try.push(ssh_dir.join("id_ecdsa"));
+
+    // Try each key
+    for key_file in &keys_to_try {
+        if key_file.exists() {
+            if let Ok(key) = load_secret_key(key_file, None) {
+                if let Ok(true) = session.authenticate_publickey(&user, Arc::new(key)).await {
+                    authenticated = true;
+                    tracing::info!("SSH authenticated with key: {}", key_file.display());
+                    break;
+                }
+            }
         }
-    } else {
-        false
-    };
+    }
+
+    // If key auth failed and password is provided, try password auth
+    if !authenticated {
+        if let Some(ref pwd) = password {
+            if !pwd.is_empty() {
+                if let Ok(true) = session.authenticate_password(&user, pwd).await {
+                    authenticated = true;
+                    tracing::info!("SSH authenticated with password");
+                }
+            }
+        }
+    }
 
     if !authenticated {
-        anyhow::bail!("SSH authentication failed");
+        let tried_keys: Vec<String> = keys_to_try
+            .iter()
+            .filter(|k| k.exists())
+            .map(|k| k.display().to_string())
+            .collect();
+        let key_info = if tried_keys.is_empty() {
+            "No SSH keys found".to_string()
+        } else {
+            format!("Tried keys: {}", tried_keys.join(", "))
+        };
+        let pwd_info = if password.is_some() { ", also tried password" } else { "" };
+        anyhow::bail!("SSH authentication failed. {}{}", key_info, pwd_info);
     }
 
     {

@@ -34,6 +34,7 @@ impl SourceManager {
         path: String,
         port: Option<u16>,
         key_path: Option<PathBuf>,
+        password: Option<String>,
     ) {
         let mut source = SshSource::new(name.clone(), host, user, path);
         if let Some(p) = port {
@@ -41,6 +42,9 @@ impl SourceManager {
         }
         if let Some(k) = key_path {
             source = source.with_key_path(k);
+        }
+        if let Some(pwd) = password {
+            source = source.with_password(pwd);
         }
         self.sources.insert(name, Box::new(source));
     }
