@@ -141,16 +141,22 @@ Oxitailr stores its data in `~/.config/oxitailr/`:
 | `local_sources.json` | Saved local file sources |
 | `session.json` | Last session state (for restore) |
 
-**Note:** SSH passwords are stored securely in your OS keychain, not in JSON files.
+**Note:** SSH passwords are stored encrypted locally using Argon2 key derivation and AES-256-GCM encryption. Credential files are set to mode 0600 on Unix systems.
 
 ## Keyboard Shortcuts
 
 | Key | Action |
 |-----|--------|
+| `Ctrl+F` | Focus filter field |
+| `Ctrl+G` | Focus search field |
+| `Ctrl+L` | Clear log view |
+| `Ctrl+O` | Open local file |
 | `Page Up/Down` | Scroll by page |
 | `Home` | Jump to beginning |
 | `End` | Jump to end (enables auto-scroll) |
 | `Mouse wheel` | Scroll through logs |
+
+**Tip:** Access the in-app Help dialog from the hamburger menu (☰) for more details.
 
 ## Building for Distribution
 

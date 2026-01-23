@@ -5,6 +5,34 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2026-01-22
+
+### Added
+- **Help dialog** - Comprehensive in-app help with keyboard shortcuts, filtering guide, SSH authentication details, and settings explanations
+- **GitHub link** - Added repository link in About dialog
+- **SSH host key verification** - Verify SSH server keys against `~/.ssh/known_hosts`
+
+### Changed
+- **Improved encryption** - Replaced weak XOR encryption with Argon2 KDF for credential storage
+- **Secure nonces** - Use cryptographically secure random nonces instead of time-based generation
+- **Code organization** - Refactored into modules: `credentials`, `ui/dialogs`, `ui/panels`, `state`
+
+### Fixed
+- **Always-on-top** - Fixed window always-on-top setting not applying correctly
+- **SSH command injection** - Fixed potential command injection vulnerability using proper shell escaping
+
+### Security
+- SSH paths now properly escaped to prevent command injection
+- Credentials encrypted with Argon2-derived keys (OWASP recommended)
+- Nonces generated with cryptographic randomness
+- Credential files set to 0600 permissions on Unix
+- Regex patterns limited in size to prevent DoS attacks
+- SSH host keys verified against known_hosts file
+
+### Removed
+- Unused dependencies: `egui_extras`, `tokio-stream`
+- Dead code: 15+ unused functions removed
+
 ## [0.2.0] - 2026-01-22
 
 ### Added
