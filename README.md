@@ -1,5 +1,7 @@
 # Oxitailr
 
+**ox·i·tail·r** | \ ˌäk-sē-ˈtā-lər \ | *OK-see-TAY-ler*
+
 A modern, feature-rich log viewer with GUI interface built in Rust.
 
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange)
