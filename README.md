@@ -38,6 +38,23 @@ A modern, feature-rich log viewer with GUI interface built in Rust.
 
 ## Installation
 
+### AppImage (Recommended for Linux)
+
+Download the latest AppImage from the [Releases](https://github.com/MarcelineVPQ/oxitailr/releases) page:
+
+```bash
+# Download (replace version as needed)
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.3/Oxitailr-0.2.3-x86_64.AppImage
+
+# Make executable
+chmod +x Oxitailr-0.2.3-x86_64.AppImage
+
+# Run
+./Oxitailr-0.2.3-x86_64.AppImage
+```
+
+No dependencies required - works on most Linux distributions.
+
 ### From Source
 
 ```bash
@@ -49,11 +66,14 @@ cd oxitailr
 cargo build --release
 
 # The binary will be at target/release/oxitailr
+
+# Optional: Build AppImage
+./appimage/build-appimage.sh
 ```
 
-### Dependencies
+### Build Dependencies
 
-On Linux, you may need to install some system dependencies:
+On Linux, you may need to install some system dependencies to build from source:
 
 ```bash
 # Ubuntu/Debian
