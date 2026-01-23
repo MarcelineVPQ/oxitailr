@@ -23,11 +23,15 @@ fn get_file_inode(path: &Path) -> std::io::Result<u64> {
     Ok(std::fs::metadata(path)?.ino())
 }
 
-/// Get the file index as pseudo-inode (Windows)
+/// Get a pseudo-inode for Windows (using file size + creation time as a proxy)
+/// Note: This is a best-effort approach since Windows doesn't have true inodes
 #[cfg(windows)]
 fn get_file_inode(path: &Path) -> std::io::Result<u64> {
     use std::os::windows::fs::MetadataExt;
-    Ok(std::fs::metadata(path)?.file_index().unwrap_or(0))
+    let meta = std::fs::metadata(path)?;
+    // Combine creation time and file size as a pseudo-inode
+    // This will detect most rotation scenarios where a new file is created
+    Ok(meta.creation_time() ^ (meta.file_size() << 32))
 }
 
 /// Get the current size of a file

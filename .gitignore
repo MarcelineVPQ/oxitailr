@@ -50,3 +50,4 @@ id_ed25519
 coverage/
 *.profraw
 *.profdata
+dist/
