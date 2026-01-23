@@ -452,7 +452,8 @@ async fn run_ssh_tail(
     // Use shlex to properly escape the path to prevent command injection
     let escaped_path = shlex::try_quote(&path)
         .map_err(|_| anyhow::anyhow!("Invalid path: contains null bytes"))?;
-    let command = format!("tail -F {}", escaped_path);
+    // Use tail -n +1 to read from the beginning, -F to follow (and handle rotation)
+    let command = format!("tail -n +1 -F {}", escaped_path);
     channel.exec(true, command).await?;
 
     let mut line_count: u64 = 0;
