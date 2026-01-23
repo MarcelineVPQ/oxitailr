@@ -32,7 +32,7 @@ A modern, feature-rich log viewer with GUI interface built in Rust.
 ### User Interface
 - **Tabbed source view** - Switch between sources or view all combined
 - **Source panel** - Manage local files and SSH connections
-- **Always-on-top mode** - Keep the window visible while working
+- **Theme support** - Light, Dark, or System theme (follows OS preference)
 - **Configurable display** - Adjust font size, line spacing, timestamps, and more
 
 ## Installation

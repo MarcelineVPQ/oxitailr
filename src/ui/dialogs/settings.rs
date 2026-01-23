@@ -1,5 +1,6 @@
 //! Settings configuration dialog.
 
+use crate::Theme;
 use eframe::egui;
 
 /// State for the settings dialog
@@ -15,7 +16,7 @@ pub struct SettingsDialogState {
     pub line_spacing: f32,
     pub tab_width: String,
     pub update_interval_ms: String,
-    pub always_on_top: bool,
+    pub theme: Theme,
     pub remember_last_session: bool,
 }
 
@@ -33,7 +34,7 @@ impl Default for SettingsDialogState {
             line_spacing: 1.0,
             tab_width: "4".to_string(),
             update_interval_ms: "100".to_string(),
-            always_on_top: false,
+            theme: Theme::System,
             remember_last_session: true,
         }
     }
@@ -138,12 +139,18 @@ pub fn render_settings_dialog(
                     ui.label("");
                     ui.end_row();
 
-                    // Window settings
-                    ui.label(egui::RichText::new("Window").strong());
+                    // Appearance settings
+                    ui.label(egui::RichText::new("Appearance").strong());
                     ui.end_row();
 
-                    ui.label("Always on top:");
-                    ui.checkbox(&mut dialog.always_on_top, "");
+                    ui.label("Theme:");
+                    egui::ComboBox::from_id_salt("theme_selector")
+                        .selected_text(dialog.theme.as_str())
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut dialog.theme, Theme::System, "System");
+                            ui.selectable_value(&mut dialog.theme, Theme::Light, "Light");
+                            ui.selectable_value(&mut dialog.theme, Theme::Dark, "Dark");
+                        });
                     ui.end_row();
 
                     ui.label("");

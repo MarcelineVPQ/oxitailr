@@ -44,6 +44,25 @@ fn load_icon() -> Option<IconData> {
     })
 }
 
+/// Application theme
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Theme {
+    Light,
+    Dark,
+    #[default]
+    System,
+}
+
+impl Theme {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Theme::Light => "Light",
+            Theme::Dark => "Dark",
+            Theme::System => "System",
+        }
+    }
+}
+
 #[derive(ClapParser)]
 #[command(name = "oxitailr")]
 #[command(author, version, about = "A modern log viewer with GUI")]
@@ -169,7 +188,7 @@ struct TailLoggerApp {
     line_spacing: f32,
     tab_width: usize,
     update_interval_ms: u64,
-    always_on_top: bool,
+    theme: Theme,
 
     // Highlighting
     highlight_rules: Vec<HighlightRule>,
@@ -260,7 +279,7 @@ impl TailLoggerApp {
             line_spacing: 1.0,
             tab_width: 4,
             update_interval_ms: 100,
-            always_on_top: false,
+            theme: Theme::System,
             highlight_rules: default_highlight_rules(),
             highlight_dialog: HighlightDialogState::default(),
             saved_ssh_sources: Vec::new(),
@@ -659,7 +678,7 @@ impl TailLoggerApp {
         self.settings_dialog.line_spacing = self.line_spacing;
         self.settings_dialog.tab_width = self.tab_width.to_string();
         self.settings_dialog.update_interval_ms = self.update_interval_ms.to_string();
-        self.settings_dialog.always_on_top = self.always_on_top;
+        self.settings_dialog.theme = self.theme;
         self.settings_dialog.remember_last_session = self.config.general.remember_last_session;
         self.settings_dialog.open = true;
     }
@@ -672,7 +691,7 @@ impl TailLoggerApp {
         self.auto_scroll = self.settings_dialog.auto_scroll;
         self.use_auto_parser = self.settings_dialog.use_auto_parser;
         self.line_spacing = self.settings_dialog.line_spacing;
-        self.always_on_top = self.settings_dialog.always_on_top;
+        self.theme = self.settings_dialog.theme;
 
         if let Ok(tab) = self.settings_dialog.tab_width.parse::<usize>() {
             self.tab_width = tab.clamp(1, 16);
@@ -1097,6 +1116,7 @@ impl TailLoggerApp {
 
                     ui.heading("Settings");
                     ui.add_space(5.0);
+                    ui.label("• Theme: Choose Light, Dark, or System (follows OS preference)");
                     ui.label("• Font size and line spacing: Adjust display preferences");
                     ui.label("• Auto-scroll: Keep view at the bottom as new lines arrive");
                     ui.label("• Buffer size: Maximum number of lines to keep in memory");
@@ -1246,12 +1266,20 @@ impl eframe::App for TailLoggerApp {
 
         render_highlight_dialog(ctx, &mut self.highlight_dialog, &mut self.highlight_rules);
 
-        // Apply window level (always on top) after settings are updated
-        ctx.send_viewport_cmd(egui::ViewportCommand::WindowLevel(if self.always_on_top {
-            egui::WindowLevel::AlwaysOnTop
-        } else {
-            egui::WindowLevel::Normal
-        }));
+        // Apply theme
+        match self.theme {
+            Theme::Light => ctx.set_visuals(egui::Visuals::light()),
+            Theme::Dark => ctx.set_visuals(egui::Visuals::dark()),
+            Theme::System => {
+                // Use system preference if available, otherwise default to dark
+                let visuals = if dark_light::detect() == dark_light::Mode::Light {
+                    egui::Visuals::light()
+                } else {
+                    egui::Visuals::dark()
+                };
+                ctx.set_visuals(visuals);
+            }
+        }
 
         // Top panel with controls
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {

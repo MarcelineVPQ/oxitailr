@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.1] - 2026-01-22
 
 ### Added
+- **Theme support** - Light, Dark, or System theme (follows OS preference via `dark-light` crate)
 - **Help dialog** - Comprehensive in-app help with keyboard shortcuts, filtering guide, SSH authentication details, and settings explanations
 - **GitHub link** - Added repository link in About dialog
 - **SSH host key verification** - Verify SSH server keys against `~/.ssh/known_hosts`
@@ -18,8 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Code organization** - Refactored into modules: `credentials`, `ui/dialogs`, `ui/panels`, `state`
 
 ### Fixed
-- **Always-on-top** - Fixed window always-on-top setting not applying correctly
 - **SSH command injection** - Fixed potential command injection vulnerability using proper shell escaping
+
+### Removed
+- **Always-on-top** - Removed feature due to unreliable Wayland support
 
 ### Security
 - SSH paths now properly escaped to prevent command injection
@@ -106,7 +109,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Timestamp display toggle
 - Source name display toggle
 - Line wrapping option
-- Always-on-top mode
+- Theme support (Light, Dark, System)
 
 #### Highlighting
 - Customizable highlight rules
