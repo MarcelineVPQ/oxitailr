@@ -1,0 +1,132 @@
+# Tail Logger Configuration Example
+# Copy this to config.toml and customize for your needs
+
+[general]
+# Maximum number of log entries to keep in memory
+buffer_size = 10000
+
+# Automatically scroll to follow new entries
+follow = true
+
+# Wrap long lines in the display
+wrap_lines = false
+
+# Show timestamps in log display
+show_timestamps = true
+
+# Show source name for each log entry
+show_source = true
+
+# Enable colored output
+color_enabled = true
+
+# ============================================================================
+# SOURCES
+# ============================================================================
+
+# Local file source example
+[[sources]]
+type = "local"
+name = "app-logs"
+path = "/var/log/myapp/app.log"
+enabled = true
+
+# You can use wildcards for multiple files
+# [[sources]]
+# type = "local"
+# name = "all-logs"
+# path = "/var/log/*.log"
+# enabled = true
+
+# SSH remote source example
+[[sources]]
+type = "ssh"
+name = "remote-server"
+host = "server.example.com"
+port = 22
+user = "admin"
+path = "/var/log/syslog"
+# key_path = "/home/user/.ssh/id_rsa"  # Optional, uses default key if not specified
+enabled = true
+
+# Another SSH source example
+# [[sources]]
+# type = "ssh"
+# name = "database-server"
+# host = "db.example.com"
+# port = 22
+# user = "root"
+# path = "/var/log/mysql/error.log"
+# enabled = true
+
+# ============================================================================
+# FILTERS
+# ============================================================================
+
+# Default filter preset - applied on startup
+[filters.default]
+# Include patterns (OR logic - any match includes the line)
+include = ["ERROR", "WARN", "CRITICAL"]
+
+# Exclude patterns (applied after include - any match excludes the line)
+exclude = ["healthcheck", "ping", "metrics"]
+
+# Production filter preset
+[filters.production]
+include = ["ERROR", "FATAL", "CRITICAL"]
+exclude = ["DEBUG", "TRACE"]
+
+# Debug filter preset
+[filters.debug]
+include = ["DEBUG", "TRACE"]
+exclude = []
+
+# ============================================================================
+# ALERTS
+# ============================================================================
+
+# Error alert - triggers on ERROR or CRITICAL
+[[alerts]]
+name = "errors"
+pattern = "ERROR|CRITICAL|FATAL"
+actions = [
+    { type = "visual" },
+    { type = "sound" },
+    { type = "desktop", title = "Error Detected!" }
+]
+# Minimum seconds between alerts for the same rule
+cooldown_seconds = 30
+
+# Security alert - triggers on suspicious patterns
+[[alerts]]
+name = "security"
+pattern = "unauthorized|forbidden|denied|attack|injection"
+actions = [
+    { type = "visual" },
+    { type = "desktop", title = "Security Alert!" },
+    { type = "webhook", url = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL" }
+]
+cooldown_seconds = 60
+
+# Performance alert
+[[alerts]]
+name = "performance"
+pattern = "timeout|slow query|high latency"
+actions = [
+    { type = "visual" },
+    { type = "sound" }
+]
+cooldown_seconds = 120
+
+# ============================================================================
+# WEBHOOK (Global configuration)
+# ============================================================================
+
+# Default webhook configuration
+[webhook]
+url = "https://hooks.slack.com/services/YOUR/WEBHOOK/URL"
+
+# Optional custom headers for webhook requests
+# [webhook.headers]
+# Authorization = "Bearer your-token"
+# Content-Type = "application/json"

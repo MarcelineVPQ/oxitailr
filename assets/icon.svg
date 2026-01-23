@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <!-- Rust/oxide gradient -->
+    <linearGradient id="rustGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#F48C06"/>
+      <stop offset="100%" style="stop-color:#D62828"/>
+    </linearGradient>
+    <!-- Line fade gradient -->
+    <linearGradient id="lineFade" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" style="stop-color:#6B7280;stop-opacity:0.2"/>
+      <stop offset="30%" style="stop-color:#9CA3AF"/>
+      <stop offset="100%" style="stop-color:#D1D5DB"/>
+    </linearGradient>
+  </defs>
+
+  <!-- Dark rounded square background -->
+  <rect x="8" y="8" width="112" height="112" rx="20" fill="#1E1E2E"/>
+
+  <!-- Terminal-style log lines (fading in from left) -->
+  <rect x="20" y="30" width="70" height="6" rx="3" fill="url(#lineFade)"/>
+  <rect x="20" y="44" width="88" height="6" rx="3" fill="url(#lineFade)"/>
+  <rect x="20" y="58" width="55" height="6" rx="3" fill="url(#lineFade)"/>
+
+  <!-- Highlighted/active line - the "tail" we're watching -->
+  <rect x="20" y="72" width="92" height="8" rx="4" fill="url(#rustGradient)"/>
+
+  <!-- More faded lines below -->
+  <rect x="20" y="88" width="65" height="6" rx="3" fill="#6B7280" opacity="0.4"/>
+  <rect x="20" y="100" width="45" height="5" rx="2.5" fill="#6B7280" opacity="0.2"/>
+
+  <!-- Blinking cursor at end of active line -->
+  <rect x="108" y="71" width="4" height="10" rx="1" fill="#F48C06">
+    <animate attributeName="opacity" values="1;0;1" dur="1s" repeatCount="indefinite"/>
+  </rect>
+
+  <!-- Small rust accent corner -->
+  <path d="M100 8 L120 8 Q128 8 128 16 L128 28 L100 8 Z" fill="url(#rustGradient)" opacity="0.8"/>
+</svg>

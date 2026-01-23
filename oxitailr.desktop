@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Oxitailr
+Comment=A modern log viewer with GUI
+Exec=oxitailr %f
+Icon=oxitailr
+Terminal=false
+Type=Application
+Categories=Development;Utility;
+MimeType=text/plain;text/x-log;
+StartupWMClass=oxitailr

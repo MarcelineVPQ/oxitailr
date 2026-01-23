@@ -1,0 +1,52 @@
+# Build artifacts
+/target/
+/release/
+
+# Claude AI session data
+.claude/
+
+# KDE/desktop files
+.directory
+
+# Cargo lock file (usually not committed for libraries, but OK for binaries)
+# Cargo.lock
+
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Log files used during testing
+*.log
+logs/
+
+# Config files that may contain secrets
+config.toml
+*.secret
+*.key
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# SSH keys (should never be committed)
+id_rsa
+id_ed25519
+*.pem
+
+# Temporary files
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+
+# Coverage reports
+coverage/
+*.profraw
+*.profdata
