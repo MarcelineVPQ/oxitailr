@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=Oxitailr
+Comment=Modern log viewer with SSH support
+Exec=oxitailr
+Icon=oxitailr
+Terminal=false
+Type=Application
+Categories=Development;Utility;System;
+Keywords=log;tail;viewer;ssh;
