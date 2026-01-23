@@ -1,5 +1,4 @@
 use super::{LocalFileSource, Source, SourceEvent, SshSource};
-use crate::models::SourceInfo;
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -26,6 +25,7 @@ impl SourceManager {
         self.sources.insert(name, Box::new(source));
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn add_ssh_source(
         &mut self,
         name: String,
@@ -53,23 +53,9 @@ impl SourceManager {
         self.event_rx.take()
     }
 
-    pub async fn start_all(&mut self) -> Result<()> {
-        for source in self.sources.values_mut() {
-            source.start(self.event_tx.clone()).await?;
-        }
-        Ok(())
-    }
-
     pub async fn start_source(&mut self, name: &str) -> Result<()> {
         if let Some(source) = self.sources.get_mut(name) {
             source.start(self.event_tx.clone()).await?;
-        }
-        Ok(())
-    }
-
-    pub async fn stop_all(&mut self) -> Result<()> {
-        for source in self.sources.values_mut() {
-            source.stop().await?;
         }
         Ok(())
     }
@@ -79,18 +65,6 @@ impl SourceManager {
             source.stop().await?;
         }
         Ok(())
-    }
-
-    pub fn get_source_info(&self, name: &str) -> Option<SourceInfo> {
-        self.sources.get(name).map(|s| s.info())
-    }
-
-    pub fn get_all_source_info(&self) -> Vec<SourceInfo> {
-        self.sources.values().map(|s| s.info()).collect()
-    }
-
-    pub fn source_names(&self) -> Vec<String> {
-        self.sources.keys().cloned().collect()
     }
 }
 

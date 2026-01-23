@@ -105,10 +105,6 @@ impl Parser for JsonParser {
 
         entry
     }
-
-    fn name(&self) -> &str {
-        "json"
-    }
 }
 
 #[cfg(test)]

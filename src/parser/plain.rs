@@ -80,10 +80,6 @@ impl Parser for PlainParser {
 
         entry
     }
-
-    fn name(&self) -> &str {
-        "plain"
-    }
 }
 
 #[cfg(test)]

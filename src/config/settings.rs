@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct AppConfig {
     #[serde(default)]
     pub general: GeneralConfig,
@@ -16,18 +16,6 @@ pub struct AppConfig {
     pub alerts: Vec<AlertConfig>,
     #[serde(default)]
     pub webhook: Option<WebhookConfig>,
-}
-
-impl Default for AppConfig {
-    fn default() -> Self {
-        Self {
-            general: GeneralConfig::default(),
-            sources: Vec::new(),
-            filters: HashMap::new(),
-            alerts: Vec::new(),
-            webhook: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,13 +90,6 @@ fn default_ssh_port() -> u16 {
 }
 
 impl SourceConfig {
-    pub fn name(&self) -> &str {
-        match self {
-            SourceConfig::Local { name, .. } => name,
-            SourceConfig::Ssh { name, .. } => name,
-        }
-    }
-
     pub fn is_enabled(&self) -> bool {
         match self {
             SourceConfig::Local { enabled, .. } => *enabled,
@@ -117,7 +98,7 @@ impl SourceConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FilterConfig {
     #[serde(default)]
     pub include: Vec<String>,
@@ -125,16 +106,6 @@ pub struct FilterConfig {
     pub exclude: Vec<String>,
     #[serde(default)]
     pub rules: Vec<FilterRule>,
-}
-
-impl Default for FilterConfig {
-    fn default() -> Self {
-        Self {
-            include: Vec::new(),
-            exclude: Vec::new(),
-            rules: Vec::new(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

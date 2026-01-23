@@ -1,3 +1,8 @@
+//! Alert system module - currently unused but planned for future integration.
+//! Provides desktop notifications, webhook alerts, and visual/sound alerts.
+
+#![allow(dead_code)]
+
 mod desktop;
 mod sound;
 mod visual;

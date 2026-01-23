@@ -9,13 +9,16 @@ license = "MIT"
 [dependencies]
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
-tokio-stream = "0.1"
 futures = "0.3"
 async-trait = "0.1"
 
 # GUI
 eframe = "0.29"
-egui_extras = "0.29"
+
+# Security - KDF and randomness
+argon2 = "0.5"
+rand = "0.8"
+shlex = "1.3"
 
 # File watching
 notify = "6.1"
@@ -55,8 +58,9 @@ thiserror = "1.0"
 # Directories
 dirs = "5.0"
 
-# Secure password storage
-keyring = "3"
+# Encryption for password storage
+aes-gcm = "0.10"
+base64 = "0.22"
 
 # Image loading (for app icon)
 image = { version = "0.25", default-features = false, features = ["png"] }

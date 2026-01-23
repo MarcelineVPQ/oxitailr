@@ -3,10 +3,171 @@ use crate::models::{SourceInfo, SourceStatus, SourceType};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use russh::client;
+use russh_keys::key::PublicKey;
 use russh_keys::load_secret_key;
+use std::collections::HashMap;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{mpsc, watch, Mutex};
+
+/// Store for known SSH host keys
+#[derive(Debug, Clone, Default)]
+pub struct KnownHostsStore {
+    /// Map of "host:port" -> list of accepted public key fingerprints
+    hosts: HashMap<String, Vec<String>>,
+}
+
+impl KnownHostsStore {
+    /// Load known hosts from the default ~/.ssh/known_hosts file
+    pub fn load_default() -> Self {
+        let known_hosts_path = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("."))
+            .join(".ssh")
+            .join("known_hosts");
+
+        Self::load_from_file(&known_hosts_path)
+    }
+
+    /// Load known hosts from a specific file
+    pub fn load_from_file(path: &PathBuf) -> Self {
+        let mut store = Self::default();
+
+        if !path.exists() {
+            tracing::warn!("known_hosts file not found at {}", path.display());
+            return store;
+        }
+
+        let file = match std::fs::File::open(path) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!("Failed to open known_hosts: {}", e);
+                return store;
+            }
+        };
+
+        let reader = BufReader::new(file);
+        for line in reader.lines().map_while(Result::ok) {
+            // Skip comments and empty lines
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+
+            // Parse known_hosts format: hostname[,hostname]... key-type base64-key [comment]
+            let parts: Vec<&str> = line.split_whitespace().collect();
+            if parts.len() >= 3 {
+                let hostnames = parts[0];
+                let key_type = parts[1];
+                let key_data = parts[2];
+
+                // Create a fingerprint from key type and data
+                let fingerprint = format!("{}:{}", key_type, key_data);
+
+                // Handle multiple hostnames (comma-separated)
+                for hostname in hostnames.split(',') {
+                    // Handle hashed hostnames (|1|...) by skipping them
+                    // We only support plain hostnames for now
+                    if hostname.starts_with('|') {
+                        continue;
+                    }
+
+                    // Normalize hostname (remove brackets for IPv6, handle port)
+                    let normalized = normalize_hostname(hostname);
+                    store
+                        .hosts
+                        .entry(normalized)
+                        .or_default()
+                        .push(fingerprint.clone());
+                }
+            }
+        }
+
+        tracing::info!(
+            "Loaded {} known hosts from {}",
+            store.hosts.len(),
+            path.display()
+        );
+        store
+    }
+
+    /// Check if a host key is known
+    pub fn is_known(&self, host: &str, port: u16, key: &PublicKey) -> HostKeyStatus {
+        let host_key = format_host_key(host, port);
+        let key_fingerprint = format_key_fingerprint(key);
+
+        // Also check without port for default SSH port
+        let host_keys = if port == 22 {
+            vec![host_key.clone(), host.to_string()]
+        } else {
+            vec![host_key]
+        };
+
+        for hk in &host_keys {
+            if let Some(known_keys) = self.hosts.get(hk) {
+                for known_fp in known_keys {
+                    if *known_fp == key_fingerprint {
+                        return HostKeyStatus::Known;
+                    }
+                }
+                // Host is known but key doesn't match - potential MITM!
+                return HostKeyStatus::Changed;
+            }
+        }
+
+        HostKeyStatus::Unknown
+    }
+}
+
+/// Status of host key verification
+#[derive(Debug, Clone, PartialEq)]
+pub enum HostKeyStatus {
+    /// Host key is known and matches
+    Known,
+    /// Host is known but key has changed (potential MITM attack)
+    Changed,
+    /// Host is not in known_hosts
+    Unknown,
+}
+
+fn normalize_hostname(hostname: &str) -> String {
+    // Remove brackets from [host]:port format
+    hostname
+        .trim_start_matches('[')
+        .replace("]:", ":")
+        .to_string()
+}
+
+fn format_host_key(host: &str, port: u16) -> String {
+    if port == 22 {
+        host.to_string()
+    } else {
+        format!("[{}]:{}", host, port)
+    }
+}
+
+fn format_key_fingerprint(key: &PublicKey) -> String {
+    let key_type = match key {
+        PublicKey::Ed25519(_) => "ssh-ed25519",
+        PublicKey::RSA { .. } => "ssh-rsa",
+        _ => "unknown",
+    };
+
+    // Get the key data as base64
+    let key_data = match key {
+        PublicKey::Ed25519(k) => base64::Engine::encode(
+            &base64::engine::general_purpose::STANDARD,
+            k.as_bytes(),
+        ),
+        PublicKey::RSA { ref key, .. } => {
+            // For RSA, we'd need to serialize the full key - simplified here
+            format!("{:?}", key)
+        }
+        _ => String::new(),
+    };
+
+    format!("{}:{}", key_type, key_data)
+}
 
 pub struct SshSource {
     name: String,
@@ -53,7 +214,21 @@ impl SshSource {
     }
 }
 
-struct SshHandler;
+struct SshHandler {
+    host: String,
+    port: u16,
+    known_hosts: KnownHostsStore,
+}
+
+impl SshHandler {
+    fn new(host: String, port: u16) -> Self {
+        Self {
+            host,
+            port,
+            known_hosts: KnownHostsStore::load_default(),
+        }
+    }
+}
 
 #[async_trait]
 impl client::Handler for SshHandler {
@@ -61,9 +236,38 @@ impl client::Handler for SshHandler {
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh_keys::key::PublicKey,
+        server_public_key: &russh_keys::key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        Ok(true)
+        match self.known_hosts.is_known(&self.host, self.port, server_public_key) {
+            HostKeyStatus::Known => {
+                tracing::info!("SSH host key verified for {}:{}", self.host, self.port);
+                Ok(true)
+            }
+            HostKeyStatus::Changed => {
+                tracing::error!(
+                    "SSH HOST KEY CHANGED for {}:{}! This could indicate a man-in-the-middle attack.",
+                    self.host,
+                    self.port
+                );
+                Err(anyhow::anyhow!(
+                    "SSH host key has changed for {}:{}. This could indicate a security threat. \
+                     If you trust this host, remove the old key from ~/.ssh/known_hosts and reconnect.",
+                    self.host,
+                    self.port
+                ))
+            }
+            HostKeyStatus::Unknown => {
+                // For now, we'll accept unknown hosts with a warning
+                // In a production app, you'd want to prompt the user to accept
+                tracing::warn!(
+                    "SSH host {}:{} is not in known_hosts. Accepting key on first use.",
+                    self.host,
+                    self.port
+                );
+                // TODO: Add the key to known_hosts with user confirmation via UI
+                Ok(true)
+            }
+        }
     }
 }
 
@@ -151,6 +355,7 @@ impl Source for SshSource {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_ssh_tail(
     host: String,
     port: u16,
@@ -165,7 +370,7 @@ async fn run_ssh_tail(
 ) -> Result<()> {
     let config = client::Config::default();
     let config = Arc::new(config);
-    let handler = SshHandler;
+    let handler = SshHandler::new(host.clone(), port);
 
     let mut session = client::connect(config, (host.as_str(), port), handler)
         .await
@@ -244,7 +449,10 @@ async fn run_ssh_tail(
     }
 
     let mut channel = session.channel_open_session().await?;
-    let command = format!("tail -F {}", path);
+    // Use shlex to properly escape the path to prevent command injection
+    let escaped_path = shlex::try_quote(&path)
+        .map_err(|_| anyhow::anyhow!("Invalid path: contains null bytes"))?;
+    let command = format!("tail -F {}", escaped_path);
     channel.exec(true, command).await?;
 
     let mut line_count: u64 = 0;

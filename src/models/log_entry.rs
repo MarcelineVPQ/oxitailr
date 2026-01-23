@@ -85,11 +85,6 @@ impl LogEntry {
         self
     }
 
-    pub fn with_field(mut self, key: String, value: serde_json::Value) -> Self {
-        self.fields.insert(key, value);
-        self
-    }
-
     pub fn with_fields(mut self, fields: HashMap<String, serde_json::Value>) -> Self {
         self.fields = fields;
         self

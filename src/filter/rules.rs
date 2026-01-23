@@ -1,7 +1,31 @@
 use super::Filter;
 use crate::models::{LogEntry, LogLevel};
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
+
+/// Maximum size limit for regex patterns to prevent DoS
+const MAX_REGEX_PATTERN_LEN: usize = 1000;
+
+/// Timeout/size limit for regex compilation (in bytes of the regex program)
+const MAX_REGEX_SIZE: usize = 10 * 1024 * 1024; // 10MB
+
+/// Safely compile a regex with DoS protection
+fn safe_regex_compile(pattern: &str) -> Result<Regex, String> {
+    // Check pattern length
+    if pattern.len() > MAX_REGEX_PATTERN_LEN {
+        return Err(format!(
+            "Regex pattern too long ({} > {} chars)",
+            pattern.len(),
+            MAX_REGEX_PATTERN_LEN
+        ));
+    }
+
+    // Compile with size limit
+    RegexBuilder::new(pattern)
+        .size_limit(MAX_REGEX_SIZE)
+        .build()
+        .map_err(|e| format!("Invalid regex: {}", e))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -24,21 +48,10 @@ impl FilterRule {
         }
     }
 
-    pub fn contains_case_sensitive(pattern: &str) -> Self {
-        FilterRule::Contains {
-            pattern: pattern.to_string(),
-            case_sensitive: true,
-        }
-    }
-
     pub fn regex(pattern: &str) -> Self {
         FilterRule::Regex {
             pattern: pattern.to_string(),
         }
-    }
-
-    pub fn level(level: LogLevel) -> Self {
-        FilterRule::Level { level, min: false }
     }
 
     pub fn min_level(level: LogLevel) -> Self {
@@ -49,26 +62,6 @@ impl FilterRule {
         FilterRule::Field {
             name: name.to_string(),
             pattern: pattern.to_string(),
-        }
-    }
-
-    pub fn source(name: &str) -> Self {
-        FilterRule::Source {
-            name: name.to_string(),
-        }
-    }
-
-    pub fn and(rules: Vec<FilterRule>) -> Self {
-        FilterRule::And { rules }
-    }
-
-    pub fn or(rules: Vec<FilterRule>) -> Self {
-        FilterRule::Or { rules }
-    }
-
-    pub fn not(rule: FilterRule) -> Self {
-        FilterRule::Not {
-            rule: Box::new(rule),
         }
     }
 }
@@ -86,10 +79,9 @@ impl Filter for FilterRule {
                 }
             }
             FilterRule::Regex { pattern } => {
-                if let Ok(re) = Regex::new(pattern) {
-                    re.is_match(&entry.raw) || re.is_match(&entry.message)
-                } else {
-                    false
+                match safe_regex_compile(pattern) {
+                    Ok(re) => re.is_match(&entry.raw) || re.is_match(&entry.message),
+                    Err(_) => false,
                 }
             }
             FilterRule::Level { level, min } => {
@@ -109,10 +101,9 @@ impl Filter for FilterRule {
                         serde_json::Value::String(s) => s.clone(),
                         other => other.to_string(),
                     };
-                    if let Ok(re) = Regex::new(pattern) {
-                        re.is_match(&value_str)
-                    } else {
-                        value_str.contains(pattern)
+                    match safe_regex_compile(pattern) {
+                        Ok(re) => re.is_match(&value_str),
+                        Err(_) => value_str.contains(pattern),
                     }
                 } else {
                     false
@@ -153,11 +144,7 @@ impl FilterEngine {
 
     pub fn set_live_filter(&mut self, pattern: Option<String>) {
         self.live_filter = pattern.clone();
-        self.compiled_live_filter = pattern.and_then(|p| Regex::new(&p).ok());
-    }
-
-    pub fn get_live_filter(&self) -> Option<&str> {
-        self.live_filter.as_deref()
+        self.compiled_live_filter = pattern.and_then(|p| safe_regex_compile(&p).ok());
     }
 
     pub fn clear_rules(&mut self) {
@@ -237,10 +224,12 @@ mod tests {
 
     #[test]
     fn test_and_filter() {
-        let rule = FilterRule::and(vec![
-            FilterRule::contains("error"),
-            FilterRule::contains("database"),
-        ]);
+        let rule = FilterRule::And {
+            rules: vec![
+                FilterRule::contains("error"),
+                FilterRule::contains("database"),
+            ],
+        };
         assert!(rule.matches(&make_entry("Database error occurred")));
         assert!(!rule.matches(&make_entry("Error occurred")));
     }

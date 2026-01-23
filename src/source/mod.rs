@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use tokio::sync::mpsc;
 
 #[async_trait]
+#[allow(dead_code)]
 pub trait Source: Send + Sync {
     fn name(&self) -> &str;
     fn source_type(&self) -> SourceType;

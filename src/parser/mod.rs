@@ -8,7 +8,6 @@ use crate::models::LogEntry;
 
 pub trait Parser: Send + Sync {
     fn parse(&self, source: &str, line: &str) -> LogEntry;
-    fn name(&self) -> &str;
 }
 
 pub fn auto_detect_parser(line: &str) -> Box<dyn Parser> {
