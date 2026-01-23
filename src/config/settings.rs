@@ -44,6 +44,8 @@ pub struct GeneralConfig {
     pub show_source: bool,
     #[serde(default = "default_true")]
     pub color_enabled: bool,
+    #[serde(default = "default_true")]
+    pub remember_last_session: bool,
 }
 
 fn default_buffer_size() -> usize {
@@ -63,6 +65,7 @@ impl Default for GeneralConfig {
             show_timestamps: true,
             show_source: true,
             color_enabled: true,
+            remember_last_session: true,
         }
     }
 }
@@ -75,6 +78,8 @@ pub enum SourceConfig {
         path: String,
         #[serde(default)]
         enabled: bool,
+        #[serde(default)]
+        auto_open: bool,
     },
     Ssh {
         name: String,
@@ -87,6 +92,8 @@ pub enum SourceConfig {
         key_path: Option<PathBuf>,
         #[serde(default)]
         enabled: bool,
+        #[serde(default)]
+        auto_open: bool,
     },
 }
 

@@ -55,6 +55,9 @@ thiserror = "1.0"
 # Directories
 dirs = "5.0"
 
+# Secure password storage
+keyring = "3"
+
 # Image loading (for app icon)
 image = { version = "0.25", default-features = false, features = ["png"] }
 

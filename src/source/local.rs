@@ -3,11 +3,37 @@ use crate::models::{SourceInfo, SourceStatus, SourceType};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::sync::{mpsc, watch, Mutex};
+
+/// Tracks file state for rotation detection
+struct FileState {
+    inode: u64,
+    last_size: u64,
+    last_position: u64,
+}
+
+/// Get the inode of a file (Unix)
+#[cfg(unix)]
+fn get_file_inode(path: &Path) -> std::io::Result<u64> {
+    use std::os::unix::fs::MetadataExt;
+    Ok(std::fs::metadata(path)?.ino())
+}
+
+/// Get the file index as pseudo-inode (Windows)
+#[cfg(windows)]
+fn get_file_inode(path: &Path) -> std::io::Result<u64> {
+    use std::os::windows::fs::MetadataExt;
+    Ok(std::fs::metadata(path)?.file_index().unwrap_or(0))
+}
+
+/// Get the current size of a file
+fn get_file_size(path: &Path) -> std::io::Result<u64> {
+    Ok(std::fs::metadata(path)?.len())
+}
 
 pub struct LocalFileSource {
     name: String,
@@ -116,6 +142,14 @@ async fn run_local_tail(
             .await;
     }
 
+    // Initialize file state for rotation detection
+    let initial_inode = get_file_inode(&path).unwrap_or(0);
+    let mut file_state = FileState {
+        inode: initial_inode,
+        last_size: get_file_size(&path).unwrap_or(0),
+        last_position: 0,
+    };
+
     let mut reader = BufReader::new(file);
     let mut line = String::new();
     let mut line_count: u64 = 0;
@@ -125,7 +159,8 @@ async fn run_local_tail(
         line.clear();
         match reader.read_line(&mut line).await {
             Ok(0) => break, // End of file
-            Ok(_) => {
+            Ok(n) => {
+                file_state.last_position += n as u64;
                 let trimmed = line.trim_end().to_string();
                 if !trimmed.is_empty() {
                     line_count += 1;
@@ -162,7 +197,7 @@ async fn run_local_tail(
     let mut watcher = RecommendedWatcher::new(
         move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
-                if event.kind.is_modify() {
+                if event.kind.is_modify() || event.kind.is_create() {
                     let _ = notify_tx.blocking_send(());
                 }
             }
@@ -170,7 +205,12 @@ async fn run_local_tail(
         Config::default(),
     )?;
 
-    watcher.watch(&path_for_watcher, RecursiveMode::NonRecursive)?;
+    // Watch the parent directory to detect file recreation
+    if let Some(parent) = path_for_watcher.parent() {
+        watcher.watch(parent, RecursiveMode::NonRecursive)?;
+    } else {
+        watcher.watch(&path_for_watcher, RecursiveMode::NonRecursive)?;
+    }
 
     // Now tail for new lines
     loop {
@@ -181,12 +221,60 @@ async fn run_local_tail(
                 }
             }
             _ = notify_rx.recv() => {
-                // File was modified, read new lines
+                // Check for log rotation
+                let rotation_detected = if let Ok(current_inode) = get_file_inode(&path) {
+                    if current_inode != file_state.inode {
+                        // Inode changed - file was replaced (e.g., by logrotate)
+                        true
+                    } else if let Ok(current_size) = get_file_size(&path) {
+                        // Check if file was truncated (size < last position)
+                        if current_size < file_state.last_position {
+                            true
+                        } else {
+                            file_state.last_size = current_size;
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                } else {
+                    // File might not exist yet after rotation, wait for it
+                    false
+                };
+
+                if rotation_detected {
+                    // Wait a bit for the new file to be ready
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+                    // Try to open the new file
+                    if let Ok(new_file) = File::open(&path).await {
+                        // Send rotation notification
+                        let _ = sender
+                            .send(SourceEvent::Line {
+                                source: name.clone(),
+                                line: "--- Log rotation detected, continuing with new file ---".to_string(),
+                            })
+                            .await;
+
+                        // Update file state
+                        file_state.inode = get_file_inode(&path).unwrap_or(0);
+                        file_state.last_size = get_file_size(&path).unwrap_or(0);
+                        file_state.last_position = 0;
+
+                        // Create new reader
+                        reader = BufReader::new(new_file);
+
+                        tracing::info!("Log rotation detected for {}, reopened file", path.display());
+                    }
+                }
+
+                // Read new lines
                 loop {
                     line.clear();
                     match reader.read_line(&mut line).await {
                         Ok(0) => break, // No more data
-                        Ok(_) => {
+                        Ok(n) => {
+                            file_state.last_position += n as u64;
                             let trimmed = line.trim_end().to_string();
                             if !trimmed.is_empty() {
                                 line_count += 1;
