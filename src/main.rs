@@ -264,6 +264,33 @@ impl SshDialogState {
     }
 }
 
+// Settings Dialog state
+struct SettingsDialogState {
+    open: bool,
+    buffer_size: String,
+    font_size: f32,
+    show_timestamps: bool,
+    show_source: bool,
+    wrap_lines: bool,
+    auto_scroll: bool,
+    use_auto_parser: bool,
+}
+
+impl Default for SettingsDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            buffer_size: "10000".to_string(),
+            font_size: 13.0,
+            show_timestamps: true,
+            show_source: true,
+            wrap_lines: false,
+            auto_scroll: true,
+            use_auto_parser: true,
+        }
+    }
+}
+
 // Filter preset UI
 #[derive(Clone)]
 struct FilterPreset {
@@ -282,6 +309,7 @@ struct TailLoggerApp {
     source_infos: HashMap<String, SourceInfo>,
     event_rx: Option<mpsc::Receiver<SourceEvent>>,
     runtime: Arc<Runtime>,
+    selected_source: Option<String>, // None = "All", Some(name) = specific source
 
     // Parsers
     plain_parser: PlainParser,
@@ -314,13 +342,16 @@ struct TailLoggerApp {
     new_lines_received: bool,
     scroll_to_row: Option<usize>,
     current_scroll_row: usize,
+    initial_scroll_pending: bool,
     show_timestamps: bool,
     show_source: bool,
     wrap_lines: bool,
 
     // Dialogs
     ssh_dialog: SshDialogState,
+    settings_dialog: SettingsDialogState,
     show_source_panel: bool,
+    show_about_dialog: bool,
 }
 
 impl TailLoggerApp {
@@ -359,6 +390,7 @@ impl TailLoggerApp {
             source_infos: HashMap::new(),
             event_rx,
             runtime,
+            selected_source: None,
             plain_parser: PlainParser::new(),
             use_auto_parser: true,
             filter_engine: FilterEngine::new(),
@@ -383,11 +415,14 @@ impl TailLoggerApp {
             new_lines_received: false,
             scroll_to_row: None,
             current_scroll_row: 0,
+            initial_scroll_pending: true,
             show_timestamps: config.general.show_timestamps,
             show_source: config.general.show_source,
             wrap_lines: config.general.wrap_lines,
             ssh_dialog: SshDialogState::default(),
+            settings_dialog: SettingsDialogState::default(),
             show_source_panel: true,
+            show_about_dialog: false,
         };
 
         // Add initial file if provided
@@ -482,36 +517,178 @@ impl TailLoggerApp {
         }
     }
 
-    fn open_settings_location(&self) {
-        if let Some(parent) = self.config_path.parent() {
-            // Create directory if it doesn't exist
-            let _ = std::fs::create_dir_all(parent);
-
-            // Create default config if it doesn't exist
-            if !self.config_path.exists() {
-                let _ = config::save_config(&self.config, &self.config_path);
-            }
-
-            // Open the directory in file manager
-            #[cfg(target_os = "linux")]
-            {
-                let _ = std::process::Command::new("xdg-open")
-                    .arg(parent)
-                    .spawn();
-            }
-            #[cfg(target_os = "macos")]
-            {
-                let _ = std::process::Command::new("open")
-                    .arg(parent)
-                    .spawn();
-            }
-            #[cfg(target_os = "windows")]
-            {
-                let _ = std::process::Command::new("explorer")
-                    .arg(parent)
-                    .spawn();
-            }
+    fn reload_sources(&mut self) {
+        // Clear log state
+        {
+            let mut state = self.log_state.lock().unwrap();
+            state.lines.clear();
+            state.total_lines_read = 0;
         }
+
+        // Scroll to bottom when data loads
+        self.initial_scroll_pending = true;
+
+        // Restart all sources
+        let source_manager = self.source_manager.clone();
+        let runtime = self.runtime.clone();
+        let source_names: Vec<String> = self.source_infos.keys().cloned().collect();
+
+        runtime.block_on(async {
+            let mut sm = source_manager.lock().await;
+            // Stop all sources
+            for name in &source_names {
+                let _ = sm.stop_source(name).await;
+            }
+            // Start all sources again
+            for name in &source_names {
+                let _ = sm.start_source(name).await;
+            }
+        });
+    }
+
+    fn open_settings_dialog(&mut self) {
+        // Sync current state to dialog
+        self.settings_dialog.buffer_size = self.config.general.buffer_size.to_string();
+        self.settings_dialog.font_size = self.font_size;
+        self.settings_dialog.show_timestamps = self.show_timestamps;
+        self.settings_dialog.show_source = self.show_source;
+        self.settings_dialog.wrap_lines = self.wrap_lines;
+        self.settings_dialog.auto_scroll = self.auto_scroll;
+        self.settings_dialog.use_auto_parser = self.use_auto_parser;
+        self.settings_dialog.open = true;
+    }
+
+    fn render_settings_dialog(&mut self, ctx: &egui::Context) {
+        if !self.settings_dialog.open {
+            return;
+        }
+
+        egui::Window::new("Settings")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.add_space(5.0);
+
+                egui::Grid::new("settings_grid")
+                    .num_columns(2)
+                    .spacing([20.0, 8.0])
+                    .show(ui, |ui| {
+                        // Display settings
+                        ui.label("Display");
+                        ui.end_row();
+
+                        ui.label("Font size:");
+                        ui.add(egui::Slider::new(&mut self.settings_dialog.font_size, 8.0..=24.0));
+                        ui.end_row();
+
+                        ui.label("Show timestamps:");
+                        ui.checkbox(&mut self.settings_dialog.show_timestamps, "");
+                        ui.end_row();
+
+                        ui.label("Show source:");
+                        ui.checkbox(&mut self.settings_dialog.show_source, "");
+                        ui.end_row();
+
+                        ui.label("Wrap lines:");
+                        ui.checkbox(&mut self.settings_dialog.wrap_lines, "");
+                        ui.end_row();
+
+                        ui.label("");
+                        ui.end_row();
+
+                        // Behavior settings
+                        ui.label("Behavior");
+                        ui.end_row();
+
+                        ui.label("Auto-scroll:");
+                        ui.checkbox(&mut self.settings_dialog.auto_scroll, "");
+                        ui.end_row();
+
+                        ui.label("Auto-parse JSON:");
+                        ui.checkbox(&mut self.settings_dialog.use_auto_parser, "");
+                        ui.end_row();
+
+                        ui.label("Buffer size:");
+                        ui.add(egui::TextEdit::singleline(&mut self.settings_dialog.buffer_size)
+                            .desired_width(100.0));
+                        ui.end_row();
+                    });
+
+                ui.add_space(10.0);
+                ui.separator();
+                ui.add_space(5.0);
+
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(format!("Config: {}", self.config_path.display()))
+                            .small()
+                            .color(egui::Color32::from_rgb(120, 120, 120))
+                    );
+                });
+
+                ui.add_space(10.0);
+
+                ui.horizontal(|ui| {
+                    if ui.button("Cancel").clicked() {
+                        self.settings_dialog.open = false;
+                    }
+
+                    if ui.button("Apply").clicked() {
+                        // Apply settings
+                        self.font_size = self.settings_dialog.font_size;
+                        self.show_timestamps = self.settings_dialog.show_timestamps;
+                        self.show_source = self.settings_dialog.show_source;
+                        self.wrap_lines = self.settings_dialog.wrap_lines;
+                        self.auto_scroll = self.settings_dialog.auto_scroll;
+                        self.use_auto_parser = self.settings_dialog.use_auto_parser;
+
+                        if let Ok(size) = self.settings_dialog.buffer_size.parse::<usize>() {
+                            self.config.general.buffer_size = size;
+                            let mut state = self.log_state.lock().unwrap();
+                            state.max_lines = size;
+                        }
+
+                        // Update config
+                        self.config.general.show_timestamps = self.show_timestamps;
+                        self.config.general.show_source = self.show_source;
+                        self.config.general.wrap_lines = self.wrap_lines;
+                        self.config.general.follow = self.auto_scroll;
+
+                        self.settings_dialog.open = false;
+                    }
+
+                    if ui.button("Save to File").clicked() {
+                        // Apply settings first
+                        self.font_size = self.settings_dialog.font_size;
+                        self.show_timestamps = self.settings_dialog.show_timestamps;
+                        self.show_source = self.settings_dialog.show_source;
+                        self.wrap_lines = self.settings_dialog.wrap_lines;
+                        self.auto_scroll = self.settings_dialog.auto_scroll;
+                        self.use_auto_parser = self.settings_dialog.use_auto_parser;
+
+                        if let Ok(size) = self.settings_dialog.buffer_size.parse::<usize>() {
+                            self.config.general.buffer_size = size;
+                        }
+
+                        // Update config struct
+                        self.config.general.show_timestamps = self.show_timestamps;
+                        self.config.general.show_source = self.show_source;
+                        self.config.general.wrap_lines = self.wrap_lines;
+                        self.config.general.follow = self.auto_scroll;
+
+                        // Save to file
+                        if let Some(parent) = self.config_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+                        if let Err(e) = config::save_config(&self.config, &self.config_path) {
+                            tracing::error!("Failed to save config: {}", e);
+                        }
+
+                        self.settings_dialog.open = false;
+                    }
+                });
+            });
     }
 
     fn update_filter(&mut self) {
@@ -642,7 +819,7 @@ impl TailLoggerApp {
                     ui.label(&info.name);
                     ui.label(format!("({})", info.source_type));
 
-                    if ui.small_button("✕").clicked() {
+                    if ui.small_button("x").clicked() {
                         to_remove.push(name.clone());
                     }
                 });
@@ -768,6 +945,45 @@ impl TailLoggerApp {
             });
     }
 
+    fn render_about_dialog(&mut self, ctx: &egui::Context) {
+        if !self.show_about_dialog {
+            return;
+        }
+
+        egui::Window::new("About Oxitailr")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(10.0);
+                    ui.heading("Oxitailr");
+                    ui.label("A modern log viewer");
+                    ui.label("Developed by Marcy Kuhn");
+                    ui.add_space(10.0);
+                    ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+                    ui.label("Features:");
+                    ui.label("• Multi-source log viewing (local & SSH)");
+                    ui.label("• JSON log auto-parsing");
+                    ui.label("• Advanced filtering with presets");
+                    ui.label("• ANSI color support");
+                    ui.label("• Real-time log tailing");
+                    ui.add_space(10.0);
+                    ui.separator();
+                    ui.add_space(10.0);
+                    ui.label("Built with Rust + egui");
+                    ui.add_space(10.0);
+                    if ui.button("Close").clicked() {
+                        self.show_about_dialog = false;
+                    }
+                    ui.add_space(10.0);
+                });
+            });
+    }
+
     fn render_filter_builder(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Type:");
@@ -830,19 +1046,49 @@ impl eframe::App for TailLoggerApp {
         // Request repaint for live updates
         ctx.request_repaint_after(std::time::Duration::from_millis(100));
 
-        // Render SSH dialog if open
+        // Render dialogs
         self.render_ssh_dialog(ctx);
+        self.render_about_dialog(ctx);
+        self.render_settings_dialog(ctx);
 
         // Top panel with controls
         egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
             ui.horizontal(|ui| {
-                if ui.button("📂 Open File").clicked() {
-                    self.open_file_dialog();
-                }
+                // Hamburger menu
+                ui.menu_button("☰", |ui| {
+                    ui.set_min_width(150.0);
 
-                if ui.button("⚙ Settings").clicked() {
-                    self.open_settings_location();
-                }
+                    if ui.button("📂  Open File...").clicked() {
+                        self.open_file_dialog();
+                        ui.close_menu();
+                    }
+
+                    if ui.button("🔗  Add SSH Source...").clicked() {
+                        self.ssh_dialog.open = true;
+                        self.ssh_dialog.reset();
+                        self.ssh_dialog.port = "22".to_string();
+                        ui.close_menu();
+                    }
+
+                    ui.separator();
+
+                    if ui.button("⚙  Settings").clicked() {
+                        self.open_settings_dialog();
+                        ui.close_menu();
+                    }
+
+                    ui.separator();
+
+                    if ui.button("❓  Help").clicked() {
+                        // TODO: Open help documentation
+                        ui.close_menu();
+                    }
+
+                    if ui.button("ℹ  About").clicked() {
+                        self.show_about_dialog = true;
+                        ui.close_menu();
+                    }
+                });
 
                 ui.separator();
 
@@ -853,13 +1099,18 @@ impl eframe::App for TailLoggerApp {
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Clear").clicked() {
-                        self.log_state.lock().unwrap().lines.clear();
+                        let mut state = self.log_state.lock().unwrap();
+                        state.lines.clear();
+                        state.total_lines_read = 0;
+                        drop(state);
+                        self.initial_scroll_pending = true;
                     }
 
-                    ui.checkbox(&mut self.auto_scroll, "Auto-scroll");
-                    ui.checkbox(&mut self.show_source_panel, "Sources");
+                    if ui.button("Reload").clicked() {
+                        self.reload_sources();
+                    }
 
-                    ui.add(egui::Slider::new(&mut self.font_size, 8.0..=24.0).text("Font"));
+                    ui.checkbox(&mut self.show_source_panel, "Sources");
                 });
             });
 
@@ -938,13 +1189,35 @@ impl eframe::App for TailLoggerApp {
                         .hint_text("Highlight text...")
                         .desired_width(200.0),
                 );
+            });
+        });
 
+        // Bottom status bar - must be before CentralPanel
+        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                let state = self.log_state.lock().unwrap();
+                let filtered_count = state
+                    .lines
+                    .iter()
+                    .filter(|line| self.line_matches_filter(line))
+                    .count();
+                ui.label(format!(
+                    "Showing {} of {} lines",
+                    filtered_count,
+                    state.lines.len()
+                ));
+
+                // Show active sources count
+                let connected_count = self.source_infos
+                    .values()
+                    .filter(|i| i.status == SourceStatus::Connected)
+                    .count();
                 ui.separator();
+                ui.label(format!("Sources: {} connected", connected_count));
 
-                ui.checkbox(&mut self.show_timestamps, "Timestamps");
-                ui.checkbox(&mut self.show_source, "Source");
-                ui.checkbox(&mut self.wrap_lines, "Wrap");
-                ui.checkbox(&mut self.use_auto_parser, "Auto-parse JSON");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label("Scroll: Mouse wheel | Home/End | Page Up/Down");
+                });
             });
         });
 
@@ -987,6 +1260,34 @@ impl eframe::App for TailLoggerApp {
                 return;
             }
 
+            // Source tabs
+            ui.horizontal(|ui| {
+                // "All" tab
+                let all_selected = self.selected_source.is_none();
+                if ui.selectable_label(all_selected, "All").clicked() {
+                    self.selected_source = None;
+                }
+
+                ui.separator();
+
+                // Individual source tabs
+                let source_names: Vec<String> = self.source_infos.keys().cloned().collect();
+                for name in &source_names {
+                    let is_selected = self.selected_source.as_ref() == Some(name);
+                    let info = self.source_infos.get(name);
+
+                    // Show status indicator in tab
+                    let status_symbol = info.map(|i| i.status_symbol()).unwrap_or("?");
+                    let tab_text = format!("{} {}", status_symbol, name);
+
+                    if ui.selectable_label(is_selected, tab_text).clicked() {
+                        self.selected_source = Some(name.clone());
+                    }
+                }
+            });
+
+            ui.separator();
+
             let text_style = egui::TextStyle::Monospace;
             let row_height = ui.text_style_height(&text_style) * (self.font_size / 13.0);
 
@@ -994,7 +1295,16 @@ impl eframe::App for TailLoggerApp {
             let filtered_lines: Vec<&DisplayLine> = state
                 .lines
                 .iter()
-                .filter(|line| self.line_matches_filter(line))
+                .filter(|line| {
+                    // Filter by selected source
+                    if let Some(ref selected) = self.selected_source {
+                        if &line.entry.source != selected {
+                            return false;
+                        }
+                    }
+                    // Apply other filters
+                    self.line_matches_filter(line)
+                })
                 .collect();
 
             let total_rows = filtered_lines.len();
@@ -1030,6 +1340,12 @@ impl eframe::App for TailLoggerApp {
                 self.scroll_to_row = Some(row);
             }
 
+            // Handle initial scroll to bottom
+            if self.initial_scroll_pending && total_rows > 0 {
+                self.scroll_to_row = Some(total_rows.saturating_sub(1));
+                self.initial_scroll_pending = false;
+            }
+
             // Only stick to bottom when new lines arrive and auto-scroll is on
             let should_stick = self.auto_scroll && self.new_lines_received;
 
@@ -1042,13 +1358,16 @@ impl eframe::App for TailLoggerApp {
                 scroll_area = scroll_area.vertical_scroll_offset(row as f32 * row_height);
             }
 
-            scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-                // Track current scroll position
-                self.current_scroll_row = row_range.start;
+            // Render log lines - use different approach based on wrap setting
+            if self.wrap_lines {
+                // Wrapped mode: can't use show_rows with fixed heights
+                scroll_area.show(ui, |ui| {
+                    for (row, line) in filtered_lines.iter().enumerate() {
+                        if row == 0 {
+                            self.current_scroll_row = 0;
+                        }
 
-                for row in row_range {
-                    if let Some(line) = filtered_lines.get(row) {
-                        ui.horizontal(|ui| {
+                        ui.horizontal_wrapped(|ui| {
                             // Line number
                             ui.label(
                                 egui::RichText::new(format!("{:6} ", line.line_num))
@@ -1091,53 +1410,23 @@ impl eframe::App for TailLoggerApp {
                                 );
                             }
 
-                            // Render message
+                            // Render message with wrapping
                             let has_search_match = !search_lower.is_empty()
                                 && line.entry.message.to_lowercase().contains(&search_lower);
 
-                            // Use level-based colors if no ANSI codes, or show parsed message for JSON
-                            let display_text = if !line.entry.fields.is_empty() {
-                                // JSON log - show parsed message
-                                &line.entry.message
-                            } else {
-                                // Plain log - show raw (ANSI stripped is in spans)
-                                &line.entry.message
-                            };
+                            let color = log_level_color(line.entry.level.as_ref());
+                            let mut text = egui::RichText::new(&line.entry.message)
+                                .monospace()
+                                .size(self.font_size)
+                                .color(color);
 
-                            if line.has_ansi {
-                                // Render ANSI colored spans
-                                for span in &line.spans {
-                                    let mut text = egui::RichText::new(&span.text)
-                                        .monospace()
-                                        .size(self.font_size)
-                                        .color(span.color);
-
-                                    if span.bold {
-                                        text = text.strong();
-                                    }
-
-                                    if has_search_match && span.text.to_lowercase().contains(&search_lower) {
-                                        text = text.background_color(egui::Color32::from_rgb(100, 100, 0));
-                                    }
-
-                                    ui.label(text);
-                                }
-                            } else {
-                                // Render with level-based color
-                                let color = log_level_color(line.entry.level.as_ref());
-                                let mut text = egui::RichText::new(display_text)
-                                    .monospace()
-                                    .size(self.font_size)
-                                    .color(color);
-
-                                if has_search_match {
-                                    text = text.background_color(egui::Color32::from_rgb(100, 100, 0));
-                                }
-
-                                ui.label(text);
+                            if has_search_match {
+                                text = text.background_color(egui::Color32::from_rgb(100, 100, 0));
                             }
 
-                            // Show JSON fields on hover if present
+                            ui.label(text);
+
+                            // Show JSON fields indicator
                             if !line.entry.fields.is_empty() {
                                 ui.label(
                                     egui::RichText::new(" {...}")
@@ -1159,37 +1448,121 @@ impl eframe::App for TailLoggerApp {
                             }
                         });
                     }
-                }
-            });
-        });
-
-        // Bottom status bar
-        egui::TopBottomPanel::bottom("bottom_panel").show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                let state = self.log_state.lock().unwrap();
-                let filtered_count = state
-                    .lines
-                    .iter()
-                    .filter(|line| self.line_matches_filter(line))
-                    .count();
-                ui.label(format!(
-                    "Showing {} of {} lines",
-                    filtered_count,
-                    state.lines.len()
-                ));
-
-                // Show active sources count
-                let connected_count = self.source_infos
-                    .values()
-                    .filter(|i| i.status == SourceStatus::Connected)
-                    .count();
-                ui.separator();
-                ui.label(format!("Sources: {} connected", connected_count));
-
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label("Scroll: Mouse wheel | Home/End | Page Up/Down");
                 });
-            });
+            } else {
+                // Non-wrapped mode: use show_rows for performance
+                scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+                    self.current_scroll_row = row_range.start;
+
+                    for row in row_range {
+                        if let Some(line) = filtered_lines.get(row) {
+                            ui.horizontal(|ui| {
+                                // Line number
+                                ui.label(
+                                    egui::RichText::new(format!("{:6} ", line.line_num))
+                                        .monospace()
+                                        .size(self.font_size)
+                                        .color(egui::Color32::from_rgb(100, 100, 100)),
+                                );
+
+                                // Source indicator
+                                if self.show_source && self.source_infos.len() > 1 {
+                                    let source_color = egui::Color32::from_rgb(100, 150, 200);
+                                    ui.label(
+                                        egui::RichText::new(format!("[{}] ", line.entry.source))
+                                            .monospace()
+                                            .size(self.font_size)
+                                            .color(source_color),
+                                    );
+                                }
+
+                                // Timestamp
+                                if self.show_timestamps {
+                                    if let Some(ts) = &line.entry.timestamp {
+                                        ui.label(
+                                            egui::RichText::new(format!("{} ", ts.format("%H:%M:%S%.3f")))
+                                                .monospace()
+                                                .size(self.font_size)
+                                                .color(egui::Color32::from_rgb(120, 120, 120)),
+                                        );
+                                    }
+                                }
+
+                                // Level badge
+                                if let Some(level) = &line.entry.level {
+                                    let level_color = log_level_color(Some(level));
+                                    ui.label(
+                                        egui::RichText::new(format!("[{:5}] ", level.as_str()))
+                                            .monospace()
+                                            .size(self.font_size)
+                                            .color(level_color),
+                                    );
+                                }
+
+                                // Render message
+                                let has_search_match = !search_lower.is_empty()
+                                    && line.entry.message.to_lowercase().contains(&search_lower);
+
+                                let display_text = &line.entry.message;
+
+                                if line.has_ansi {
+                                    // Render ANSI colored spans
+                                    for span in &line.spans {
+                                        let mut text = egui::RichText::new(&span.text)
+                                            .monospace()
+                                            .size(self.font_size)
+                                            .color(span.color);
+
+                                        if span.bold {
+                                            text = text.strong();
+                                        }
+
+                                        if has_search_match && span.text.to_lowercase().contains(&search_lower) {
+                                            text = text.background_color(egui::Color32::from_rgb(100, 100, 0));
+                                        }
+
+                                        ui.label(text);
+                                    }
+                                } else {
+                                    // Render with level-based color
+                                    let color = log_level_color(line.entry.level.as_ref());
+                                    let mut text = egui::RichText::new(display_text)
+                                        .monospace()
+                                        .size(self.font_size)
+                                        .color(color);
+
+                                    if has_search_match {
+                                        text = text.background_color(egui::Color32::from_rgb(100, 100, 0));
+                                    }
+
+                                    ui.label(text);
+                                }
+
+                                // Show JSON fields on hover if present
+                                if !line.entry.fields.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new(" {...}")
+                                            .monospace()
+                                            .size(self.font_size * 0.9)
+                                            .color(egui::Color32::from_rgb(100, 100, 100)),
+                                    ).on_hover_ui(|ui| {
+                                        ui.label("JSON Fields:");
+                                        for (key, value) in &line.entry.fields {
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    egui::RichText::new(format!("{}:", key))
+                                                        .color(egui::Color32::from_rgb(150, 200, 150))
+                                                );
+                                                ui.label(format!("{}", value));
+                                            });
+                                        }
+                                    });
+                                }
+                            });
+                        }
+                    }
+                });
+            }
         });
     }
 }
