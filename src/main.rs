@@ -186,6 +186,7 @@ struct TailLoggerApp {
     new_lines_received: bool,
     scroll_to_row: Option<usize>,
     current_scroll_row: usize,
+    current_scroll_offset: f32,
     initial_scroll_pending: bool,
     show_timestamps: bool,
     show_source: bool,
@@ -280,6 +281,7 @@ impl TailLoggerApp {
             new_lines_received: false,
             scroll_to_row: None,
             current_scroll_row: 0,
+            current_scroll_offset: 0.0,
             initial_scroll_pending: true,
             show_timestamps: config.general.show_timestamps,
             show_source: config.general.show_source,
@@ -1593,22 +1595,21 @@ impl eframe::App for TailLoggerApp {
             // Calculate row height including spacing (what show_rows uses internally)
             let spacing_y = ui.spacing().item_spacing.y;
             let row_height_with_spacing = row_height + spacing_y;
-            let visible_rows = (ui.available_height() / row_height) as usize;
             let visible_height = ui.available_height();
+            // Note: max_offset is approximate for wrap_lines mode, but egui handles clamping
             let content_height = total_rows as f32 * row_height_with_spacing;
             let max_offset = (content_height - visible_height).max(0.0);
 
             let mut scroll_request: Option<f32> = None;
-            let mut scroll_to_end = false;
             ctx.input(|i| {
                 if i.key_pressed(egui::Key::PageDown) {
-                    let new_row = (self.current_scroll_row + visible_rows).min(total_rows.saturating_sub(1));
-                    scroll_request = Some(new_row as f32 * row_height_with_spacing);
+                    let page_size = visible_height * 0.9;
+                    scroll_request = Some(self.current_scroll_offset + page_size);
                     self.auto_scroll = false;
                 }
                 if i.key_pressed(egui::Key::PageUp) {
-                    let new_row = self.current_scroll_row.saturating_sub(visible_rows);
-                    scroll_request = Some(new_row as f32 * row_height_with_spacing);
+                    let page_size = visible_height * 0.9;
+                    scroll_request = Some((self.current_scroll_offset - page_size).max(0.0));
                     self.auto_scroll = false;
                 }
                 if i.key_pressed(egui::Key::Home) {
@@ -1616,7 +1617,7 @@ impl eframe::App for TailLoggerApp {
                     self.auto_scroll = false;
                 }
                 if i.key_pressed(egui::Key::End) {
-                    scroll_to_end = true;
+                    scroll_request = Some(max_offset);
                     self.auto_scroll = true;
                 }
             });
@@ -1625,9 +1626,6 @@ impl eframe::App for TailLoggerApp {
             let scroll_offset: Option<f32> = if let Some(offset) = scroll_request {
                 self.scroll_to_row = None;
                 Some(offset)
-            } else if scroll_to_end {
-                self.scroll_to_row = None;
-                Some(max_offset)
             } else if let Some(row) = self.scroll_to_row.take() {
                 Some(row as f32 * row_height_with_spacing)
             } else if total_rows > 0 && (self.initial_scroll_pending || (self.auto_scroll && self.new_lines_received)) {
@@ -1646,13 +1644,10 @@ impl eframe::App for TailLoggerApp {
             }
 
             if self.wrap_lines {
-                scroll_area.show(ui, |ui| {
+                let output = scroll_area.show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0 * line_spacing;
 
-                    for (row, line) in filtered_lines.iter().enumerate() {
-                        if row == 0 {
-                            local_scroll_row = 0;
-                        }
+                    for (_row, line) in filtered_lines.iter().enumerate() {
 
                         ui.horizontal_wrapped(|ui| {
                             ui.label(
@@ -1750,8 +1745,13 @@ impl eframe::App for TailLoggerApp {
                         });
                     }
                 });
+                // Track scroll offset for pixel-based Page Up/Down
+                self.current_scroll_offset = output.state.offset.y;
+                // Estimate current row (approximate since wrapped lines have variable height)
+                local_scroll_row = ((output.state.offset.y / row_height_with_spacing) as usize)
+                    .min(total_rows.saturating_sub(1));
             } else {
-                scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
+                let output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
                     local_scroll_row = row_range.start;
 
                     for row in row_range {
@@ -1882,8 +1882,11 @@ impl eframe::App for TailLoggerApp {
                         }
                     }
                 });
+                // Track scroll offset for pixel-based Page Up/Down
+                self.current_scroll_offset = output.state.offset.y;
             }
 
+            // Always sync current_scroll_row from scroll area state
             self.current_scroll_row = local_scroll_row;
         });
     }
