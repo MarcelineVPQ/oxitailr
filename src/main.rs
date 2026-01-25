@@ -22,7 +22,7 @@ use models::{LogEntry, LogLevel, SourceInfo, SourceStatus};
 use parser::{auto_detect_parser, Parser, PlainParser};
 use regex::Regex;
 use source::{SourceEvent, SourceManager};
-use state::{load_local_sources, load_session, save_local_sources, save_session, SavedLocalSource};
+use state::{load_local_sources, load_session, save_local_sources, save_session, SavedLocalSource, WindowState};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -216,6 +216,9 @@ struct TailLoggerApp {
     show_source_panel: bool,
     show_about_dialog: bool,
     show_help_dialog: bool,
+
+    // Window state for persistence
+    window_state: WindowState,
 }
 
 impl TailLoggerApp {
@@ -306,6 +309,7 @@ impl TailLoggerApp {
             show_source_panel: true,
             show_about_dialog: false,
             show_help_dialog: false,
+            window_state: WindowState::default(),
         };
 
         // Load saved sources
@@ -451,7 +455,7 @@ impl TailLoggerApp {
             }
         }
 
-        save_session(&self.session_path, open_local_files, open_ssh_sources);
+        save_session(&self.session_path, open_local_files, open_ssh_sources, self.window_state.clone());
     }
 
     fn open_auto_open_sources(&mut self) {
@@ -1220,6 +1224,16 @@ impl eframe::App for TailLoggerApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.process_events();
 
+        // Track window state for persistence
+        ctx.input(|i| {
+            if let Some(rect) = i.viewport().outer_rect {
+                self.window_state.x = Some(rect.min.x);
+                self.window_state.y = Some(rect.min.y);
+                self.window_state.width = Some(rect.width());
+                self.window_state.height = Some(rect.height());
+            }
+        });
+
         ctx.request_repaint_after(std::time::Duration::from_millis(self.update_interval_ms));
 
         // Handle SSH dialog
@@ -1910,24 +1924,45 @@ fn main() -> Result<()> {
         None => "Oxitailr".to_string(),
     };
 
+    // Load saved session to restore window state
+    let session_path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("oxitailr")
+        .join("session.json");
+    let saved_session = load_session(&session_path);
+
+    // Use saved window size/position if available, otherwise use defaults
+    let (width, height) = saved_session
+        .as_ref()
+        .and_then(|s| {
+            match (s.window.width, s.window.height) {
+                (Some(w), Some(h)) if w > 100.0 && h > 100.0 => Some((w, h)),
+                _ => None,
+            }
+        })
+        .unwrap_or((1200.0, 800.0));
+
     let mut viewport = egui::ViewportBuilder::default()
-        .with_inner_size([1200.0, 800.0])
+        .with_inner_size([width, height])
         .with_title(title)
         .with_app_id("oxitailr");
+
+    // Apply saved window position if available
+    if let Some(ref session) = saved_session {
+        if let (Some(x), Some(y)) = (session.window.x, session.window.y) {
+            // Only apply position if it's reasonable (not negative or off-screen)
+            if x >= -2000.0 && y >= -2000.0 && x < 10000.0 && y < 10000.0 {
+                viewport = viewport.with_position([x, y]);
+            }
+        }
+    }
 
     if let Some(icon) = load_icon() {
         viewport = viewport.with_icon(Arc::new(icon));
     }
 
-    // Use oxitailr config directory for eframe persistence (window size/position)
-    let persistence_path = dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join("oxitailr");
-
     let options = eframe::NativeOptions {
         viewport,
-        persist_window: true,
-        persistence_path: Some(persistence_path),
         ..Default::default()
     };
 

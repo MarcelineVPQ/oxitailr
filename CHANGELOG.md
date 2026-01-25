@@ -5,10 +5,15 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.6] - 2026-01-25
+
+### Fixed
+- **Window state persistence** - Fixed window size/position not being restored (now uses manual persistence via session.json instead of eframe's built-in which wasn't working)
+
 ## [0.2.5] - 2026-01-25
 
 ### Added
-- **Window state persistence** - Remember window size and position between sessions
+- **Window state persistence** - Remember window size and position between sessions (broken - fixed in 0.2.6)
 
 ## [0.2.4] - 2026-01-25
 

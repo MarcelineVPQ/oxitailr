@@ -3,12 +3,23 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// Window state for persistence
+#[derive(Clone, Serialize, Deserialize, Default)]
+pub struct WindowState {
+    pub x: Option<f32>,
+    pub y: Option<f32>,
+    pub width: Option<f32>,
+    pub height: Option<f32>,
+}
+
 /// Session state for persistence across restarts
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SessionState {
     pub open_local_files: Vec<String>,
     pub open_ssh_sources: Vec<String>,
     pub timestamp: String,
+    #[serde(default)]
+    pub window: WindowState,
 }
 
 /// Saved local file source for auto_open feature
@@ -49,11 +60,13 @@ pub fn save_session(
     session_path: &PathBuf,
     open_local_files: Vec<String>,
     open_ssh_sources: Vec<String>,
+    window: WindowState,
 ) {
     let session = SessionState {
         open_local_files,
         open_ssh_sources,
         timestamp: chrono::Local::now().to_rfc3339(),
+        window,
     };
 
     if let Some(parent) = session_path.parent() {
