@@ -5,6 +5,14 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.13] - 2026-01-25
+
+### Fixed
+- **Bookmark navigation** - Fixed bookmark jumps scrolling to wrong position (clicking bookmark for line 3112 would scroll to ~1950)
+  - Now uses egui's native `scroll_to_me()` API instead of manual pixel calculations
+  - Bookmark target now correctly appears at top of viewport
+  - Works correctly in both wrap_lines and non-wrap modes
+
 ## [0.2.10] - 2026-01-25
 
 ### Fixed

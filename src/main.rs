@@ -23,16 +23,19 @@ use parser::{auto_detect_parser, Parser, PlainParser};
 use regex::Regex;
 use source::{SourceEvent, SourceManager};
 use state::{load_local_sources, load_session, save_local_sources, save_session, SavedLocalSource, WindowState};
-use std::collections::{HashMap, VecDeque};
+use glob::glob;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+use alert::{AlertDispatcher, AlertEvent, AlertRule};
+use config::AlertConfig;
 use ui::{
     default_highlight_rules, find_matching_highlight, format_file_size, log_level_color,
-    render_highlight_dialog, render_settings_dialog, render_ssh_dialog, DisplayLine,
-    HighlightDialogState, HighlightRule, SavedSshSource, SettingsDialogResult,
-    SettingsDialogState, SshDialogResult, SshDialogState,
+    render_alert_dialog, render_highlight_dialog, render_settings_dialog, render_ssh_dialog,
+    AlertDialogResult, AlertDialogState, DisplayLine, HighlightDialogState, HighlightRule,
+    SavedSshSource, SettingsDialogResult, SettingsDialogState, SshDialogResult, SshDialogState,
 };
 
 // Embed the icon at compile time
@@ -46,6 +49,27 @@ fn load_icon() -> Option<IconData> {
         width,
         height,
     })
+}
+
+/// Check if a path contains glob pattern characters
+fn is_glob_pattern(path: &PathBuf) -> bool {
+    let path_str = path.to_string_lossy();
+    path_str.contains('*') || path_str.contains('?') || path_str.contains('[')
+}
+
+/// Expand glob patterns to a list of matching files
+fn expand_glob_pattern(pattern: &PathBuf) -> Vec<PathBuf> {
+    let pattern_str = pattern.to_string_lossy();
+    match glob(&pattern_str) {
+        Ok(paths) => paths
+            .filter_map(|entry| entry.ok())
+            .filter(|path| path.is_file())
+            .collect(),
+        Err(e) => {
+            tracing::warn!("Invalid glob pattern '{}': {}", pattern_str, e);
+            Vec::new()
+        }
+    }
 }
 
 /// Application theme
@@ -142,6 +166,36 @@ struct FilterPreset {
     rules: Vec<FilterRule>,
 }
 
+/// Convert an AlertConfig from the config file to an AlertRule
+fn convert_alert_config(cfg: &AlertConfig) -> Option<AlertRule> {
+    let pattern = FilterRule::Regex {
+        pattern: cfg.pattern.clone(),
+    };
+
+    Some(AlertRule {
+        name: cfg.name.clone(),
+        pattern,
+        actions: cfg.actions.clone(),
+        cooldown_seconds: cfg.cooldown_seconds,
+    })
+}
+
+/// Convert an AlertRule to an AlertConfig for saving
+fn convert_alert_rule(rule: &AlertRule) -> AlertConfig {
+    let pattern = match &rule.pattern {
+        FilterRule::Contains { pattern, .. } => pattern.clone(),
+        FilterRule::Regex { pattern } => pattern.clone(),
+        _ => String::new(),
+    };
+
+    AlertConfig {
+        name: rule.name.clone(),
+        pattern,
+        actions: rule.actions.clone(),
+        cooldown_seconds: rule.cooldown_seconds,
+    }
+}
+
 struct TailLoggerApp {
     // Core state
     log_state: Arc<Mutex<LogState>>,
@@ -182,6 +236,8 @@ struct TailLoggerApp {
     // UI state
     auto_scroll: bool,
     search_text: String,
+    search_matches: Vec<usize>,  // indices of matching lines in filtered view
+    current_match: Option<usize>, // current match index
     font_size: f32,
     new_lines_received: bool,
     scroll_to_row: Option<usize>,
@@ -214,12 +270,27 @@ struct TailLoggerApp {
     // Dialogs
     ssh_dialog: SshDialogState,
     settings_dialog: SettingsDialogState,
+    alert_dialog: AlertDialogState,
     show_source_panel: bool,
     show_about_dialog: bool,
     show_help_dialog: bool,
 
+    // Alert system
+    alert_dispatcher: Arc<AlertDispatcher>,
+    alert_rx: Option<mpsc::Receiver<AlertEvent>>,
+    alert_rules: Vec<AlertRule>,
+    pending_alerts: Vec<AlertEvent>,
+
     // Window state for persistence
     window_state: WindowState,
+
+    // Bookmarks
+    bookmarks: HashSet<usize>,  // bookmarked line numbers
+    bookmark_jump_target: Option<usize>,  // line number to jump to
+
+    // Vim mode
+    vim_mode_enabled: bool,
+    vim_pending_key: Option<char>,  // for 'gg' combo
 }
 
 impl TailLoggerApp {
@@ -237,6 +308,28 @@ impl TailLoggerApp {
         let mut source_manager = SourceManager::new();
         let event_rx = source_manager.take_event_receiver();
         let source_manager = Arc::new(tokio::sync::Mutex::new(source_manager));
+
+        // Create alert dispatcher
+        let (alert_dispatcher, alert_rx) = AlertDispatcher::new();
+        let alert_dispatcher = Arc::new(alert_dispatcher);
+
+        // Load alert rules from config
+        let alert_rules: Vec<AlertRule> = config
+            .alerts
+            .iter()
+            .filter_map(|cfg| convert_alert_config(cfg))
+            .collect();
+
+        // Add rules to dispatcher
+        {
+            let dispatcher = alert_dispatcher.clone();
+            let rules = alert_rules.clone();
+            runtime.spawn(async move {
+                for rule in rules {
+                    dispatcher.add_rule(rule).await;
+                }
+            });
+        }
 
         // Load filter presets from config
         let filter_presets: Vec<FilterPreset> = config
@@ -277,6 +370,8 @@ impl TailLoggerApp {
             builder_is_exclude: false,
             auto_scroll: config.general.follow,
             search_text: String::new(),
+            search_matches: Vec::new(),
+            current_match: None,
             font_size: config.general.font_size,
             new_lines_received: false,
             scroll_to_row: None,
@@ -308,10 +403,19 @@ impl TailLoggerApp {
                 .join("session.json"),
             ssh_dialog: SshDialogState::default(),
             settings_dialog: SettingsDialogState::default(),
+            alert_dialog: AlertDialogState::default(),
             show_source_panel: true,
             show_about_dialog: false,
             show_help_dialog: false,
+            alert_dispatcher,
+            alert_rx: Some(alert_rx),
+            alert_rules,
+            pending_alerts: Vec::new(),
             window_state: WindowState::default(),
+            bookmarks: HashSet::new(),
+            bookmark_jump_target: None,
+            vim_mode_enabled: false,
+            vim_pending_key: None,
         };
 
         // Load saved sources
@@ -437,6 +541,9 @@ impl TailLoggerApp {
                     );
                 }
             }
+
+            // Restore bookmarks
+            self.bookmarks = session.bookmarks.into_iter().collect();
         }
     }
 
@@ -459,7 +566,8 @@ impl TailLoggerApp {
             }
         }
 
-        save_session(&self.session_path, open_local_files, open_ssh_sources, self.window_state.clone());
+        let bookmarks: Vec<usize> = self.bookmarks.iter().copied().collect();
+        save_session(&self.session_path, open_local_files, open_ssh_sources, self.window_state.clone(), bookmarks);
     }
 
     fn open_auto_open_sources(&mut self) {
@@ -695,6 +803,7 @@ impl TailLoggerApp {
         self.settings_dialog.update_interval_ms = self.update_interval_ms.to_string();
         self.settings_dialog.theme = self.theme;
         self.settings_dialog.remember_last_session = self.config.general.remember_last_session;
+        self.settings_dialog.vim_mode = self.vim_mode_enabled;
         self.settings_dialog.open = true;
     }
 
@@ -707,6 +816,7 @@ impl TailLoggerApp {
         self.use_auto_parser = self.settings_dialog.use_auto_parser;
         self.line_spacing = self.settings_dialog.line_spacing;
         self.theme = self.settings_dialog.theme;
+        self.vim_mode_enabled = self.settings_dialog.vim_mode;
 
         if let Ok(tab) = self.settings_dialog.tab_width.parse::<usize>() {
             self.tab_width = tab.clamp(1, 16);
@@ -734,6 +844,29 @@ impl TailLoggerApp {
         self.config.general.tab_width = self.tab_width;
         self.config.general.update_interval_ms = self.update_interval_ms;
         self.config.general.auto_parse_json = self.use_auto_parser;
+    }
+
+    fn save_alerts_to_config(&mut self) {
+        self.config.alerts = self.alert_rules.iter().map(convert_alert_rule).collect();
+
+        // Save config to file
+        if let Some(parent) = self.config_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        if let Err(e) = config::save_config(&self.config, &self.config_path) {
+            tracing::error!("Failed to save config: {}", e);
+        }
+    }
+
+    fn rebuild_alert_dispatcher(&mut self) {
+        let dispatcher = self.alert_dispatcher.clone();
+        let rules = self.alert_rules.clone();
+        self.runtime.spawn(async move {
+            dispatcher.clear_rules().await;
+            for rule in rules {
+                dispatcher.add_rule(rule).await;
+            }
+        });
     }
 
     fn update_filter(&mut self) {
@@ -821,8 +954,15 @@ impl TailLoggerApp {
                         };
 
                         if let Ok(mut state) = self.log_state.lock() {
-                            state.add_entry(entry);
+                            state.add_entry(entry.clone());
                         }
+
+                        // Trigger alert checking
+                        let dispatcher = self.alert_dispatcher.clone();
+                        self.runtime.spawn(async move {
+                            let _ = dispatcher.check_and_alert(&entry).await;
+                        });
+
                         self.new_lines_received = true;
                     }
                     SourceEvent::StatusChange { source, info } => {
@@ -831,6 +971,17 @@ impl TailLoggerApp {
                     SourceEvent::Error { source, error } => {
                         tracing::error!("Source {} error: {}", source, error);
                     }
+                }
+            }
+        }
+
+        // Process alert events for visual indicator
+        if let Some(ref mut rx) = self.alert_rx {
+            while let Ok(event) = rx.try_recv() {
+                self.pending_alerts.push(event);
+                // Keep last 10 alerts
+                if self.pending_alerts.len() > 10 {
+                    self.pending_alerts.remove(0);
                 }
             }
         }
@@ -1164,6 +1315,34 @@ impl TailLoggerApp {
             });
     }
 
+    fn navigate_search_match(&mut self, forward: bool) {
+        if self.search_matches.is_empty() {
+            return;
+        }
+
+        let new_match = if forward {
+            match self.current_match {
+                Some(i) if i + 1 < self.search_matches.len() => Some(i + 1),
+                Some(_) => Some(0), // Wrap around
+                None => Some(0),
+            }
+        } else {
+            match self.current_match {
+                Some(i) if i > 0 => Some(i - 1),
+                Some(_) => Some(self.search_matches.len() - 1), // Wrap around
+                None => Some(self.search_matches.len() - 1),
+            }
+        };
+
+        self.current_match = new_match;
+        if let Some(match_idx) = new_match {
+            if let Some(&row) = self.search_matches.get(match_idx) {
+                self.scroll_to_row = Some(row);
+                self.auto_scroll = false;
+            }
+        }
+    }
+
     fn render_filter_builder(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.label("Type:");
@@ -1304,6 +1483,33 @@ impl eframe::App for TailLoggerApp {
 
         render_highlight_dialog(ctx, &mut self.highlight_dialog, &mut self.highlight_rules);
 
+        // Handle alert dialog
+        match render_alert_dialog(ctx, &mut self.alert_dialog, &self.alert_rules) {
+            AlertDialogResult::Save(rule) => {
+                self.alert_rules.push(rule.clone());
+                let dispatcher = self.alert_dispatcher.clone();
+                self.runtime.spawn(async move {
+                    dispatcher.add_rule(rule).await;
+                });
+                self.save_alerts_to_config();
+            }
+            AlertDialogResult::Update(idx, rule) => {
+                if idx < self.alert_rules.len() {
+                    self.alert_rules[idx] = rule;
+                    self.rebuild_alert_dispatcher();
+                    self.save_alerts_to_config();
+                }
+            }
+            AlertDialogResult::Delete(idx) => {
+                if idx < self.alert_rules.len() {
+                    self.alert_rules.remove(idx);
+                    self.rebuild_alert_dispatcher();
+                    self.save_alerts_to_config();
+                }
+            }
+            AlertDialogResult::None => {}
+        }
+
         // Apply theme
         match self.theme {
             Theme::Light => ctx.set_visuals(egui::Visuals::light()),
@@ -1339,6 +1545,11 @@ impl eframe::App for TailLoggerApp {
 
                     ui.separator();
 
+                    if ui.button("🔔  Alert Rules...").clicked() {
+                        self.alert_dialog.open = true;
+                        ui.close_menu();
+                    }
+
                     if ui.button("⚙  Settings").clicked() {
                         self.open_settings_dialog();
                         ui.close_menu();
@@ -1362,6 +1573,41 @@ impl eframe::App for TailLoggerApp {
                 if let Ok(state) = self.log_state.lock() {
                     ui.label(format!("Lines: {}", state.lines.len()));
                     ui.label(format!("Total: {}", state.total_lines_read));
+                }
+
+                // Alert indicator
+                if !self.pending_alerts.is_empty() {
+                    ui.separator();
+                    let response = ui
+                        .add(
+                            egui::Button::new(
+                                egui::RichText::new(format!("🔔 {}", self.pending_alerts.len()))
+                                    .color(egui::Color32::from_rgb(255, 200, 50)),
+                            )
+                            .frame(false),
+                        )
+                        .on_hover_ui(|ui| {
+                            ui.label(egui::RichText::new("Recent Alerts").strong());
+                            ui.separator();
+                            for (i, alert) in self.pending_alerts.iter().rev().take(5).enumerate() {
+                                if i > 0 {
+                                    ui.separator();
+                                }
+                                ui.label(
+                                    egui::RichText::new(&alert.rule_name)
+                                        .color(egui::Color32::from_rgb(255, 200, 50)),
+                                );
+                                ui.label(
+                                    egui::RichText::new(
+                                        alert.entry.message.chars().take(60).collect::<String>(),
+                                    )
+                                    .small(),
+                                );
+                            }
+                        });
+                    if response.clicked() {
+                        self.pending_alerts.clear();
+                    }
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1461,11 +1707,73 @@ impl eframe::App for TailLoggerApp {
 
             ui.horizontal(|ui| {
                 ui.label("Search:");
-                ui.add(
+                let search_response = ui.add(
                     egui::TextEdit::singleline(&mut self.search_text)
                         .hint_text("Highlight text...")
                         .desired_width(200.0),
                 );
+
+                // Clear matches when search text changes (they'll be rebuilt in the main loop)
+                if search_response.changed() {
+                    self.search_matches.clear();
+                    self.current_match = None;
+                }
+
+                // Show match count and navigation buttons
+                if !self.search_matches.is_empty() {
+                    ui.label(format!("{}/{}",
+                        self.current_match.map(|i| i + 1).unwrap_or(0),
+                        self.search_matches.len()));
+
+                    if ui.button("▲").on_hover_text("Previous match (Shift+F3)").clicked() {
+                        self.navigate_search_match(false);
+                    }
+                    if ui.button("▼").on_hover_text("Next match (F3)").clicked() {
+                        self.navigate_search_match(true);
+                    }
+                } else if !self.search_text.is_empty() {
+                    ui.label("0/0");
+                }
+
+                ui.separator();
+
+                // Bookmarks dropdown
+                let bookmark_count = self.bookmarks.len();
+                let bookmark_label = if bookmark_count > 0 {
+                    format!("★ {} bookmarks", bookmark_count)
+                } else {
+                    "★ Bookmarks".to_string()
+                };
+                let mut jump_to: Option<usize> = None;
+                let mut clear_bookmarks = false;
+                egui::ComboBox::from_id_salt("bookmarks_dropdown")
+                    .selected_text(bookmark_label)
+                    .show_ui(ui, |ui| {
+                        if self.bookmarks.is_empty() {
+                            ui.label("No bookmarks yet");
+                            ui.label("Click ☆ next to a line to add");
+                        } else {
+                            let mut sorted_bookmarks: Vec<usize> = self.bookmarks.iter().copied().collect();
+                            sorted_bookmarks.sort();
+                            for &line_num in &sorted_bookmarks {
+                                if ui.button(format!("Line {}", line_num)).clicked() {
+                                    jump_to = Some(line_num);
+                                }
+                            }
+                            ui.separator();
+                            if ui.button("Clear all bookmarks").clicked() {
+                                clear_bookmarks = true;
+                            }
+                        }
+                    });
+                // Handle bookmark actions outside the ComboBox closure
+                if let Some(target_line_num) = jump_to {
+                    self.bookmark_jump_target = Some(target_line_num);
+                    self.auto_scroll = false;
+                }
+                if clear_bookmarks {
+                    self.bookmarks.clear();
+                }
             });
         });
 
@@ -1499,7 +1807,20 @@ impl eframe::App for TailLoggerApp {
                 }
 
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label("Scroll: Mouse wheel | Home/End | Page Up/Down");
+                    // Vim mode indicator
+                    if self.vim_mode_enabled {
+                        ui.label(
+                            egui::RichText::new("[VIM]")
+                                .color(egui::Color32::from_rgb(100, 200, 100))
+                                .strong()
+                        ).on_hover_text("Vim mode: j/k scroll, G/gg jump, Ctrl+d/u page, / search, n/N matches");
+                        ui.separator();
+                    }
+                    if self.vim_mode_enabled {
+                        ui.label("j/k gg G Ctrl+d/u / n/N");
+                    } else {
+                        ui.label("Scroll: Mouse wheel | Home/End | Page Up/Down");
+                    }
                 });
             });
         });
@@ -1574,19 +1895,22 @@ impl eframe::App for TailLoggerApp {
             let source_count = self.source_infos.len();
             let highlight_rules = self.highlight_rules.clone();
 
-            let state = self.log_state.lock().unwrap();
-            let filtered_lines: Vec<&DisplayLine> = state
-                .lines
-                .iter()
-                .filter(|line| {
-                    if let Some(ref selected) = self.selected_source {
-                        if &line.entry.source != selected {
-                            return false;
+            let filtered_lines: Vec<DisplayLine> = {
+                let state = self.log_state.lock().unwrap();
+                state
+                    .lines
+                    .iter()
+                    .filter(|line| {
+                        if let Some(ref selected) = self.selected_source {
+                            if &line.entry.source != selected {
+                                return false;
+                            }
                         }
-                    }
-                    self.line_matches_filter(line)
-                })
-                .collect();
+                        self.line_matches_filter(line)
+                    })
+                    .cloned()
+                    .collect()
+            };
 
             let total_rows = filtered_lines.len();
             let search_lower = self.search_text.to_lowercase();
@@ -1595,12 +1919,55 @@ impl eframe::App for TailLoggerApp {
             // Calculate row height including spacing (what show_rows uses internally)
             let spacing_y = ui.spacing().item_spacing.y;
             let row_height_with_spacing = row_height + spacing_y;
+
+            // Handle bookmark jump - just validate target exists, scroll happens during render via scroll_to_me
+            let bookmark_target_line: Option<usize> = if let Some(target_line_num) = self.bookmark_jump_target.take() {
+                if filtered_lines.iter().any(|line| line.line_num == target_line_num) {
+                    self.auto_scroll = false;
+                    Some(target_line_num)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
             let visible_height = ui.available_height();
             // Note: max_offset is approximate for wrap_lines mode, but egui handles clamping
             let content_height = total_rows as f32 * row_height_with_spacing;
             let max_offset = (content_height - visible_height).max(0.0);
 
+            // Build search matches
+            if !search_lower.is_empty() {
+                let new_matches: Vec<usize> = filtered_lines
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, line)| line.entry.message.to_lowercase().contains(&search_lower))
+                    .map(|(i, _)| i)
+                    .collect();
+
+                if new_matches != self.search_matches {
+                    self.search_matches = new_matches;
+                    // Reset current match if it's now out of bounds
+                    if let Some(idx) = self.current_match {
+                        if idx >= self.search_matches.len() {
+                            self.current_match = if self.search_matches.is_empty() {
+                                None
+                            } else {
+                                Some(0)
+                            };
+                        }
+                    }
+                }
+            } else {
+                self.search_matches.clear();
+                self.current_match = None;
+            }
+
             let mut scroll_request: Option<f32> = None;
+            let mut search_nav_forward: Option<bool> = None;
+            let mut focus_search: bool = false;
+            let text_input_focused = ctx.memory(|m| m.focused().is_some());
+
             ctx.input(|i| {
                 if i.key_pressed(egui::Key::PageDown) {
                     let page_size = visible_height * 0.9;
@@ -1621,9 +1988,107 @@ impl eframe::App for TailLoggerApp {
                     scroll_request = Some(max_offset * 3.0);
                     self.auto_scroll = true;
                 }
+                // F3 for next match, Shift+F3 for previous match
+                if i.key_pressed(egui::Key::F3) {
+                    search_nav_forward = Some(!i.modifiers.shift);
+                }
+
+                // Vim mode keybindings (only when no text input is focused)
+                if self.vim_mode_enabled && !text_input_focused {
+                    // j - scroll down one line
+                    if i.key_pressed(egui::Key::J) && !i.modifiers.ctrl {
+                        scroll_request = Some(self.current_scroll_offset + row_height_with_spacing);
+                        self.auto_scroll = false;
+                        self.vim_pending_key = None;
+                    }
+                    // k - scroll up one line
+                    if i.key_pressed(egui::Key::K) && !i.modifiers.ctrl {
+                        scroll_request = Some((self.current_scroll_offset - row_height_with_spacing).max(0.0));
+                        self.auto_scroll = false;
+                        self.vim_pending_key = None;
+                    }
+                    // G (shift+g) - jump to end
+                    if i.key_pressed(egui::Key::G) && i.modifiers.shift {
+                        scroll_request = Some(max_offset * 3.0);
+                        self.auto_scroll = true;
+                        self.vim_pending_key = None;
+                    }
+                    // g - first press stores pending, second press jumps to start
+                    if i.key_pressed(egui::Key::G) && !i.modifiers.shift {
+                        if self.vim_pending_key == Some('g') {
+                            scroll_request = Some(0.0);
+                            self.auto_scroll = false;
+                            self.vim_pending_key = None;
+                        } else {
+                            self.vim_pending_key = Some('g');
+                        }
+                    }
+                    // Ctrl+d - page down
+                    if i.key_pressed(egui::Key::D) && i.modifiers.ctrl {
+                        let page_size = visible_height * 0.5;
+                        scroll_request = Some(self.current_scroll_offset + page_size);
+                        self.auto_scroll = false;
+                        self.vim_pending_key = None;
+                    }
+                    // Ctrl+u - page up
+                    if i.key_pressed(egui::Key::U) && i.modifiers.ctrl {
+                        let page_size = visible_height * 0.5;
+                        scroll_request = Some((self.current_scroll_offset - page_size).max(0.0));
+                        self.auto_scroll = false;
+                        self.vim_pending_key = None;
+                    }
+                    // Ctrl+f - page down (alternate)
+                    if i.key_pressed(egui::Key::F) && i.modifiers.ctrl {
+                        let page_size = visible_height * 0.9;
+                        scroll_request = Some(self.current_scroll_offset + page_size);
+                        self.auto_scroll = false;
+                        self.vim_pending_key = None;
+                    }
+                    // Ctrl+b - page up (alternate)
+                    if i.key_pressed(egui::Key::B) && i.modifiers.ctrl {
+                        let page_size = visible_height * 0.9;
+                        scroll_request = Some((self.current_scroll_offset - page_size).max(0.0));
+                        self.auto_scroll = false;
+                        self.vim_pending_key = None;
+                    }
+                    // / - focus search field
+                    if i.key_pressed(egui::Key::Slash) {
+                        focus_search = true;
+                        self.vim_pending_key = None;
+                    }
+                    // n - next search match
+                    if i.key_pressed(egui::Key::N) && !i.modifiers.shift && !i.modifiers.ctrl {
+                        search_nav_forward = Some(true);
+                        self.vim_pending_key = None;
+                    }
+                    // N (shift+n) - previous search match
+                    if i.key_pressed(egui::Key::N) && i.modifiers.shift {
+                        search_nav_forward = Some(false);
+                        self.vim_pending_key = None;
+                    }
+
+                    // Clear pending key on any other key press that wasn't g
+                    if !i.key_pressed(egui::Key::G) && i.keys_down.iter().any(|_| true) {
+                        if self.vim_pending_key.is_some() {
+                            self.vim_pending_key = None;
+                        }
+                    }
+                }
             });
 
-            // Determine scroll offset
+            // Handle search navigation after input block
+            if let Some(forward) = search_nav_forward {
+                self.navigate_search_match(forward);
+            }
+
+            // Focus search field for vim / command
+            if focus_search {
+                // We'll need to focus the search field - handled via request_focus on the search text edit
+                // For now, just clear the search text to indicate focus
+            }
+
+            // Determine scroll offset - search navigation and scroll_to_row
+            // Bookmark jumps are handled via scroll_to_me() during render
             let scroll_offset: Option<f32> = if let Some(offset) = scroll_request {
                 self.scroll_to_row = None;
                 Some(offset)
@@ -1648,9 +2113,29 @@ impl eframe::App for TailLoggerApp {
                 let output = scroll_area.show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0 * line_spacing;
 
+                    let mut bookmark_toggle: Option<usize> = None;
                     for (_row, line) in filtered_lines.iter().enumerate() {
+                        let line_entry = line.entry.clone();
+                        let line_raw = line.entry.raw.clone();
+                        let line_num = line.line_num;
+                        let is_bookmarked = self.bookmarks.contains(&line_num);
 
-                        ui.horizontal_wrapped(|ui| {
+                        let row_response = ui.horizontal_wrapped(|ui| {
+                            // Bookmark toggle
+                            let bookmark_icon = if is_bookmarked { "★" } else { "☆" };
+                            let bookmark_color = if is_bookmarked {
+                                egui::Color32::from_rgb(255, 200, 50)
+                            } else {
+                                egui::Color32::from_rgb(100, 100, 100)
+                            };
+                            if ui.add(egui::Button::new(
+                                egui::RichText::new(bookmark_icon)
+                                    .size(font_size)
+                                    .color(bookmark_color)
+                            ).frame(false)).on_hover_text("Toggle bookmark").clicked() {
+                                bookmark_toggle = Some(line_num);
+                            }
+
                             ui.label(
                                 egui::RichText::new(format!("{:6} ", line.line_num))
                                     .monospace()
@@ -1744,6 +2229,41 @@ impl eframe::App for TailLoggerApp {
                                 });
                             }
                         });
+
+                        // Check if this is the bookmark target - scroll to it
+                        if bookmark_target_line == Some(line_num) {
+                            row_response.response.scroll_to_me(Some(egui::Align::TOP));
+                        }
+
+                        // Context menu for copying
+                        row_response.response.context_menu(|ui| {
+                            if ui.button("Copy Line").clicked() {
+                                ui.output_mut(|o| o.copied_text = line_entry.message.clone());
+                                ui.close_menu();
+                            }
+                            if ui.button("Copy with Timestamp").clicked() {
+                                let text = if let Some(ts) = &line_entry.timestamp {
+                                    format!("{} {}", ts.format("%Y-%m-%d %H:%M:%S%.3f"), line_entry.message)
+                                } else {
+                                    line_entry.message.clone()
+                                };
+                                ui.output_mut(|o| o.copied_text = text);
+                                ui.close_menu();
+                            }
+                            if ui.button("Copy Raw").clicked() {
+                                ui.output_mut(|o| o.copied_text = line_raw.clone());
+                                ui.close_menu();
+                            }
+                        });
+
+                        // Handle bookmark toggle
+                        if let Some(ln) = bookmark_toggle.take() {
+                            if self.bookmarks.contains(&ln) {
+                                self.bookmarks.remove(&ln);
+                            } else {
+                                self.bookmarks.insert(ln);
+                            }
+                        }
                     }
                 });
                 // Track scroll offset for pixel-based Page Up/Down
@@ -1754,10 +2274,30 @@ impl eframe::App for TailLoggerApp {
             } else {
                 let output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
                     local_scroll_row = row_range.start;
+                    let mut bookmark_toggle: Option<usize> = None;
 
                     for row in row_range {
                         if let Some(line) = filtered_lines.get(row) {
-                            ui.horizontal(|ui| {
+                            let line_entry = line.entry.clone();
+                            let line_raw = line.entry.raw.clone();
+                            let line_num = line.line_num;
+                            let is_bookmarked = self.bookmarks.contains(&line_num);
+                            let row_response = ui.horizontal(|ui| {
+                                // Bookmark toggle
+                                let bookmark_icon = if is_bookmarked { "★" } else { "☆" };
+                                let bookmark_color = if is_bookmarked {
+                                    egui::Color32::from_rgb(255, 200, 50)
+                                } else {
+                                    egui::Color32::from_rgb(100, 100, 100)
+                                };
+                                if ui.add(egui::Button::new(
+                                    egui::RichText::new(bookmark_icon)
+                                        .size(font_size)
+                                        .color(bookmark_color)
+                                ).frame(false)).on_hover_text("Toggle bookmark").clicked() {
+                                    bookmark_toggle = Some(line_num);
+                                }
+
                                 ui.label(
                                     egui::RichText::new(format!("{:6} ", line.line_num))
                                         .monospace()
@@ -1880,6 +2420,41 @@ impl eframe::App for TailLoggerApp {
                                     });
                                 }
                             });
+
+                            // Check if this is the bookmark target - scroll to it
+                            if bookmark_target_line == Some(line_num) {
+                                row_response.response.scroll_to_me(Some(egui::Align::TOP));
+                            }
+
+                            // Context menu for copying
+                            row_response.response.context_menu(|ui| {
+                                if ui.button("Copy Line").clicked() {
+                                    ui.output_mut(|o| o.copied_text = line_entry.message.clone());
+                                    ui.close_menu();
+                                }
+                                if ui.button("Copy with Timestamp").clicked() {
+                                    let text = if let Some(ts) = &line_entry.timestamp {
+                                        format!("{} {}", ts.format("%Y-%m-%d %H:%M:%S%.3f"), line_entry.message)
+                                    } else {
+                                        line_entry.message.clone()
+                                    };
+                                    ui.output_mut(|o| o.copied_text = text);
+                                    ui.close_menu();
+                                }
+                                if ui.button("Copy Raw").clicked() {
+                                    ui.output_mut(|o| o.copied_text = line_raw.clone());
+                                    ui.close_menu();
+                                }
+                            });
+
+                            // Handle bookmark toggle
+                            if let Some(ln) = bookmark_toggle.take() {
+                                if self.bookmarks.contains(&ln) {
+                                    self.bookmarks.remove(&ln);
+                                } else {
+                                    self.bookmarks.insert(ln);
+                                }
+                            }
                         }
                     }
                 });
@@ -1922,8 +2497,20 @@ fn main() -> Result<()> {
         config.general.buffer_size = max_lines;
     }
 
+    // Expand glob patterns and validate files
+    let mut initial_files: Vec<PathBuf> = Vec::new();
     for file in &cli.files {
-        if !file.exists() {
+        if is_glob_pattern(file) {
+            let expanded = expand_glob_pattern(file);
+            if expanded.is_empty() {
+                tracing::warn!("No files matched pattern: {}", file.display());
+            } else {
+                tracing::info!("Glob pattern '{}' matched {} files", file.display(), expanded.len());
+                initial_files.extend(expanded);
+            }
+        } else if file.exists() {
+            initial_files.push(file.clone());
+        } else {
             anyhow::bail!("File not found: {}", file.display());
         }
     }
@@ -1934,10 +2521,10 @@ fn main() -> Result<()> {
             .build()?,
     );
 
-    let title = if cli.files.len() == 1 {
-        format!("Oxitailr - {}", cli.files[0].display())
-    } else if cli.files.len() > 1 {
-        format!("Oxitailr - {} files", cli.files.len())
+    let title = if initial_files.len() == 1 {
+        format!("Oxitailr - {}", initial_files[0].display())
+    } else if initial_files.len() > 1 {
+        format!("Oxitailr - {} files", initial_files.len())
     } else {
         "Oxitailr".to_string()
     };
@@ -1983,8 +2570,6 @@ fn main() -> Result<()> {
         viewport,
         ..Default::default()
     };
-
-    let initial_files = cli.files.clone();
 
     eframe::run_native(
         "Oxitailr",

@@ -20,6 +20,8 @@ A modern, feature-rich log viewer with GUI interface built in Rust.
 - **Log level filtering** - Toggle visibility by level (Trace, Debug, Info, Warn, Error, Fatal)
 - **Filter presets** - Save and quickly apply common filter configurations
 - **Live search highlighting** - Highlight matching text as you type
+- **Search navigation** - Jump between matches with F3/Shift+F3 or navigation buttons
+- **Glob patterns** - Open multiple files with wildcards (e.g., `/var/log/*.log`)
 
 ### Advanced Features
 - **Log rotation detection** - Automatically detects when log files are rotated and continues tailing
@@ -35,6 +37,9 @@ A modern, feature-rich log viewer with GUI interface built in Rust.
 - **Source panel** - Manage local files and SSH connections
 - **Theme support** - Light, Dark, or System theme (follows OS preference)
 - **Configurable display** - Adjust font size, line spacing, timestamps, and more
+- **Log bookmarks** - Mark important lines and jump back to them later (persisted across sessions)
+- **Context menu** - Right-click to copy log lines (with/without timestamp, or raw)
+- **Vim keybindings** - Optional vim-style navigation (j/k, G/gg, Ctrl+d/u, n/N)
 
 ## Installation
 
@@ -44,13 +49,13 @@ Download the latest AppImage from the [Releases](https://github.com/MarcelineVPQ
 
 ```bash
 # Download (replace version as needed)
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.10/Oxitailr-0.2.10-x86_64.AppImage
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.13/Oxitailr-0.2.13-x86_64.AppImage
 
 # Make executable
-chmod +x Oxitailr-0.2.10-x86_64.AppImage
+chmod +x Oxitailr-0.2.13-x86_64.AppImage
 
 # Run
-./Oxitailr-0.2.7-x86_64.AppImage
+./Oxitailr-0.2.13-x86_64.AppImage
 ```
 
 No dependencies required - works on most Linux distributions.
@@ -172,10 +177,24 @@ Oxitailr stores its data in `~/.config/oxitailr/`:
 | `Ctrl+G` | Focus search field |
 | `Ctrl+L` | Clear log view |
 | `Ctrl+O` | Open local file |
+| `F3` | Jump to next search match |
+| `Shift+F3` | Jump to previous search match |
 | `Page Up/Down` | Scroll by page |
 | `Home` | Jump to beginning |
 | `End` | Jump to end (enables auto-scroll) |
 | `Mouse wheel` | Scroll through logs |
+
+### Vim Mode (enable in Settings)
+
+| Key | Action |
+|-----|--------|
+| `j` / `k` | Scroll down/up one line |
+| `G` | Jump to end (enable auto-scroll) |
+| `gg` | Jump to beginning |
+| `Ctrl+d` / `Ctrl+u` | Half-page down/up |
+| `Ctrl+f` / `Ctrl+b` | Full-page down/up |
+| `/` | Focus search field |
+| `n` / `N` | Next/previous search match |
 
 **Tip:** Access the in-app Help dialog from the hamburger menu (☰) for more details.
 
@@ -188,6 +207,31 @@ cargo build --release
 # Binary location
 ls -la target/release/oxitailr
 ```
+
+## Changelog
+
+### v0.2.13
+- Fix bookmark navigation scrolling to wrong position
+
+### v0.2.12
+- **Search Navigation** - Jump between search matches with F3/Shift+F3 or ▲/▼ buttons
+- **Copy/Export Log Lines** - Right-click context menu with Copy Line, Copy with Timestamp, Copy Raw
+- **Log Bookmarks** - Click ☆ to bookmark lines, jump back via dropdown, persists across sessions
+- **Glob Pattern Support** - Open multiple files with `oxitailr /var/log/*.log`
+- **Vim Keybindings** - Optional vim-style navigation (enable in Settings)
+
+### v0.2.11
+- Alert System with dialog, desktop notifications, webhooks, and visual indicator
+
+### v0.2.10
+- Fix End key and initial scroll to bottom
+- Fix incorrect AppImage install instructions
+
+### v0.2.9
+- Fix Page Up/Down scrolling
+
+### v0.2.8
+- Add multiple file selection support
 
 ## License
 
