@@ -1,6 +1,6 @@
 [package]
 name = "oxitailr"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
 description = "A modern, feature-rich log viewer with GUI interface"
 authors = ["Oxitailr Contributors"]
@@ -13,7 +13,7 @@ futures = "0.3"
 async-trait = "0.1"
 
 # GUI
-eframe = "0.29"
+eframe = { version = "0.29", features = ["persistence"] }
 
 # Security - KDF and randomness
 argon2 = "0.5"

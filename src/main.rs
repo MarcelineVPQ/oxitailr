@@ -1919,8 +1919,15 @@ fn main() -> Result<()> {
         viewport = viewport.with_icon(Arc::new(icon));
     }
 
+    // Use oxitailr config directory for eframe persistence (window size/position)
+    let persistence_path = dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("oxitailr");
+
     let options = eframe::NativeOptions {
         viewport,
+        persist_window: true,
+        persistence_path: Some(persistence_path),
         ..Default::default()
     };
 
