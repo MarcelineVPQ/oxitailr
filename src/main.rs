@@ -72,9 +72,9 @@ impl Theme {
 #[command(name = "oxitailr")]
 #[command(author, version, about = "A modern log viewer with GUI")]
 struct Cli {
-    /// Path to log file to view (optional - can select via file picker)
+    /// Paths to log files to view (optional - can select via file picker)
     #[arg(value_name = "FILE")]
-    file: Option<PathBuf>,
+    files: Vec<PathBuf>,
 
     /// Path to config file
     #[arg(short, long, value_name = "CONFIG")]
@@ -226,7 +226,7 @@ impl TailLoggerApp {
         _cc: &eframe::CreationContext<'_>,
         config: AppConfig,
         config_path: PathBuf,
-        initial_file: Option<PathBuf>,
+        initial_files: Vec<PathBuf>,
         runtime: Arc<Runtime>,
     ) -> Self {
         let buffer_size = config.general.buffer_size;
@@ -316,17 +316,19 @@ impl TailLoggerApp {
         app.load_ssh_sources();
         app.saved_local_sources = load_local_sources(&app.local_sources_path);
 
-        // Add initial file if provided via CLI
-        if let Some(path) = initial_file {
-            app.add_local_source_from_path(path.clone());
-            app.update_or_add_local_source(SavedLocalSource {
-                name: path
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "local".to_string()),
-                path: path.display().to_string(),
-                auto_open: false,
-            });
+        // Add initial files if provided via CLI
+        if !initial_files.is_empty() {
+            for path in initial_files {
+                app.add_local_source_from_path(path.clone());
+                app.update_or_add_local_source(SavedLocalSource {
+                    name: path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "local".to_string()),
+                    path: path.display().to_string(),
+                    auto_open: false,
+                });
+            }
         } else if config.general.remember_last_session {
             // Try to restore last session
             app.restore_session();
@@ -643,12 +645,14 @@ impl TailLoggerApp {
     }
 
     fn open_file_dialog(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
+        if let Some(paths) = rfd::FileDialog::new()
             .add_filter("Log files", &["log", "txt"])
             .add_filter("All files", &["*"])
-            .pick_file()
+            .pick_files()
         {
-            self.add_local_source_from_path(path);
+            for path in paths {
+                self.add_local_source_from_path(path);
+            }
         }
     }
 
@@ -1914,7 +1918,7 @@ fn main() -> Result<()> {
         config.general.buffer_size = max_lines;
     }
 
-    if let Some(ref file) = cli.file {
+    for file in &cli.files {
         if !file.exists() {
             anyhow::bail!("File not found: {}", file.display());
         }
@@ -1926,9 +1930,12 @@ fn main() -> Result<()> {
             .build()?,
     );
 
-    let title = match &cli.file {
-        Some(path) => format!("Oxitailr - {}", path.display()),
-        None => "Oxitailr".to_string(),
+    let title = if cli.files.len() == 1 {
+        format!("Oxitailr - {}", cli.files[0].display())
+    } else if cli.files.len() > 1 {
+        format!("Oxitailr - {} files", cli.files.len())
+    } else {
+        "Oxitailr".to_string()
     };
 
     // Load saved session to restore window state
@@ -1973,14 +1980,14 @@ fn main() -> Result<()> {
         ..Default::default()
     };
 
-    let file_path = cli.file.clone();
+    let initial_files = cli.files.clone();
 
     eframe::run_native(
         "Oxitailr",
         options,
         Box::new(move |cc| {
             Ok(Box::new(TailLoggerApp::new(
-                cc, config, config_path, file_path, runtime,
+                cc, config, config_path, initial_files, runtime,
             )))
         }),
     )
