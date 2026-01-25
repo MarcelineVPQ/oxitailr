@@ -1226,11 +1226,18 @@ impl eframe::App for TailLoggerApp {
 
         // Track window state for persistence
         ctx.input(|i| {
+            // Try outer_rect first (works on X11, Windows, macOS)
             if let Some(rect) = i.viewport().outer_rect {
                 self.window_state.x = Some(rect.min.x);
                 self.window_state.y = Some(rect.min.y);
                 self.window_state.width = Some(rect.width());
                 self.window_state.height = Some(rect.height());
+            } else {
+                // Fallback: use screen_rect for size (works on Wayland)
+                // Position is not available on Wayland - compositor controls it
+                let screen = i.screen_rect();
+                self.window_state.width = Some(screen.width());
+                self.window_state.height = Some(screen.height());
             }
         });
 
