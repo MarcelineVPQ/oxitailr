@@ -44,10 +44,10 @@ Download the latest AppImage from the [Releases](https://github.com/MarcelineVPQ
 
 ```bash
 # Download (replace version as needed)
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.9/Oxitailr-0.2.9-x86_64.AppImage
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.10/Oxitailr-0.2.10-x86_64.AppImage
 
 # Make executable
-chmod +x Oxitailr-0.2.9-x86_64.AppImage
+chmod +x Oxitailr-0.2.10-x86_64.AppImage
 
 # Run
 ./Oxitailr-0.2.7-x86_64.AppImage
