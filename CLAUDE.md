@@ -2,11 +2,15 @@
 
 ## Release Process
 
-When creating a GitHub release, **ALWAYS upload ALL THREE binaries**:
+When creating a GitHub release, **ALWAYS upload ALL THREE binaries** with consistent naming:
 
-1. **Linux binary**: `target/release/oxitailr`
-2. **Windows binary**: `target/x86_64-pc-windows-gnu/release/oxitailr.exe`
-3. **AppImage**: `release/Oxitailr-{VERSION}-x86_64.AppImage`
+1. **Linux binary**: `oxitailr-{VERSION}-x86_64`
+2. **Windows binary**: `oxitailr-{VERSION}-x86_64.exe`
+3. **AppImage**: `Oxitailr-{VERSION}-x86_64.AppImage`
+
+**IMPORTANT**:
+- Always include the VERSION in all binary names
+- Always include `-x86_64` suffix on all binaries (we only build 64-bit)
 
 ### Build Commands
 
@@ -20,12 +24,20 @@ cargo build --release --target x86_64-pc-windows-gnu
 ### Release Command
 
 ```bash
-gh release create v{VERSION} \
-  --title "v{VERSION}" \
+# Set version variable
+VERSION="0.2.13"  # Update this!
+
+# Copy binaries with correct names
+cp target/release/oxitailr /tmp/oxitailr-${VERSION}-x86_64
+cp target/x86_64-pc-windows-gnu/release/oxitailr.exe /tmp/oxitailr-${VERSION}-x86_64.exe
+
+# Create release with all three binaries
+gh release create v${VERSION} \
+  --title "v${VERSION}" \
   --notes "Release notes here" \
-  target/release/oxitailr \
-  target/x86_64-pc-windows-gnu/release/oxitailr.exe \
-  release/Oxitailr-{VERSION}-x86_64.AppImage
+  /tmp/oxitailr-${VERSION}-x86_64 \
+  /tmp/oxitailr-${VERSION}-x86_64.exe \
+  release/Oxitailr-${VERSION}-x86_64.AppImage
 ```
 
 ### Checklist Before Release
@@ -35,4 +47,7 @@ gh release create v{VERSION} \
 - [ ] Update version in `README.md` download instructions
 - [ ] Build all three binaries (Linux, Windows, AppImage)
 - [ ] Commit and push changes
-- [ ] Create GitHub release with **ALL THREE** binaries attached
+- [ ] Create GitHub release with **ALL THREE** binaries:
+  - [ ] `oxitailr-{VERSION}-x86_64` (Linux)
+  - [ ] `oxitailr-{VERSION}-x86_64.exe` (Windows)
+  - [ ] `Oxitailr-{VERSION}-x86_64.AppImage`
