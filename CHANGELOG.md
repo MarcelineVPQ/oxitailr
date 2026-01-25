@@ -5,13 +5,19 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.10] - 2026-01-25
+
+### Fixed
+- **Page Up/Down/Home/End scrolling** - Complete fix for all scroll navigation keys
+  - Uses pixel-based scrolling instead of row-based calculations
+  - Works correctly with wrap_lines mode where lines have variable heights
+  - End key now properly scrolls to actual bottom
+  - Initial scroll to bottom now works correctly with wrapped lines
+
 ## [0.2.9] - 2026-01-25
 
 ### Fixed
-- **Page Up/Down scrolling** - Fixed Page Up jumping to top and Page Down not working correctly
-  - Now uses pixel-based scrolling instead of row-based calculations
-  - Works correctly with wrap_lines mode where lines have variable heights
-  - Home/End keys continue to work as expected
+- **Page Up/Down scrolling** - Partial fix (still had issues with End key and initial scroll)
 
 ## [0.2.8] - 2026-01-25
 

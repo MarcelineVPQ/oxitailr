@@ -1617,7 +1617,8 @@ impl eframe::App for TailLoggerApp {
                     self.auto_scroll = false;
                 }
                 if i.key_pressed(egui::Key::End) {
-                    scroll_request = Some(max_offset);
+                    // Use 3x max_offset to account for wrapped lines in wrap_lines mode
+                    scroll_request = Some(max_offset * 3.0);
                     self.auto_scroll = true;
                 }
             });
@@ -1630,7 +1631,7 @@ impl eframe::App for TailLoggerApp {
                 Some(row as f32 * row_height_with_spacing)
             } else if total_rows > 0 && (self.initial_scroll_pending || (self.auto_scroll && self.new_lines_received)) {
                 self.initial_scroll_pending = false;
-                Some(max_offset)
+                Some(max_offset * 3.0) // Account for wrapped lines in wrap_lines mode
             } else {
                 None
             };

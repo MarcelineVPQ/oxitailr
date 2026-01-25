@@ -1,6 +1,6 @@
 [package]
 name = "oxitailr"
-version = "0.2.9"
+version = "0.2.10"
 edition = "2021"
 description = "A modern, feature-rich log viewer with GUI interface"
 authors = ["Oxitailr Contributors"]
