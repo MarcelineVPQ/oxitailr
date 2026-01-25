@@ -5,6 +5,14 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2026-01-25
+
+### Fixed
+- **Windows terminal window** - Added `windows_subsystem` attribute to prevent console window from appearing alongside GUI
+- **Windows tab refresh bug** - Fixed issue where opening a second log file caused existing tabs to go blank and continuously refresh
+  - Fixed Windows pseudo-inode calculation that incorrectly used file size, causing false rotation detection
+  - File watcher now filters events to only the specific file being watched, preventing cross-file interference
+
 ## [0.2.3] - 2026-01-23
 
 ### Added

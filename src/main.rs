@@ -1,3 +1,6 @@
+// Prevent terminal window from appearing on Windows
+#![windows_subsystem = "windows"]
+
 mod alert;
 mod config;
 mod credentials;

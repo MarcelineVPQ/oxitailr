@@ -23,15 +23,16 @@ fn get_file_inode(path: &Path) -> std::io::Result<u64> {
     Ok(std::fs::metadata(path)?.ino())
 }
 
-/// Get a pseudo-inode for Windows (using file size + creation time as a proxy)
+/// Get a pseudo-inode for Windows (using creation time only)
 /// Note: This is a best-effort approach since Windows doesn't have true inodes
+/// We only use creation_time because file_size changes as the file grows,
+/// which would incorrectly trigger rotation detection
 #[cfg(windows)]
 fn get_file_inode(path: &Path) -> std::io::Result<u64> {
     use std::os::windows::fs::MetadataExt;
     let meta = std::fs::metadata(path)?;
-    // Combine creation time and file size as a pseudo-inode
-    // This will detect most rotation scenarios where a new file is created
-    Ok(meta.creation_time() ^ (meta.file_size() << 32))
+    // Use only creation time as pseudo-inode - this changes when file is replaced
+    Ok(meta.creation_time())
 }
 
 /// Get the current size of a file
@@ -199,12 +200,20 @@ async fn run_local_tail(
     // Set up file watcher for new content
     let (notify_tx, mut notify_rx) = mpsc::channel(100);
     let path_for_watcher = path.clone();
+    let watched_path = path.clone();
 
     let mut watcher = RecommendedWatcher::new(
         move |res: Result<notify::Event, notify::Error>| {
             if let Ok(event) = res {
                 if event.kind.is_modify() || event.kind.is_create() {
-                    let _ = notify_tx.blocking_send(());
+                    // Only trigger for the specific file we're watching, not other files in the directory
+                    let is_our_file = event.paths.iter().any(|p| {
+                        p == &watched_path
+                            || p.file_name() == watched_path.file_name()
+                    });
+                    if is_our_file {
+                        let _ = notify_tx.blocking_send(());
+                    }
                 }
             }
         },
