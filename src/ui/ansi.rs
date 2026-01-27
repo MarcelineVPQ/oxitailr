@@ -8,8 +8,7 @@ use std::sync::LazyLock;
 pub const DEFAULT_TEXT_COLOR: egui::Color32 = egui::Color32::from_rgb(200, 200, 200);
 
 /// Regex for matching ANSI escape sequences
-pub static ANSI_REGEX: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\x1b\[([0-9;]*)m").unwrap());
+pub static ANSI_REGEX: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[([0-9;]*)m").unwrap());
 
 /// A span of text with styling information
 #[derive(Clone)]

@@ -95,7 +95,15 @@ impl Source for LocalFileSource {
         }
 
         tokio::spawn(async move {
-            if let Err(e) = run_local_tail(path, name.clone(), info.clone(), sender.clone(), &mut stop_rx).await {
+            if let Err(e) = run_local_tail(
+                path,
+                name.clone(),
+                info.clone(),
+                sender.clone(),
+                &mut stop_rx,
+            )
+            .await
+            {
                 let _ = sender
                     .send(SourceEvent::Error {
                         source: name.clone(),
@@ -207,10 +215,10 @@ async fn run_local_tail(
             if let Ok(event) = res {
                 if event.kind.is_modify() || event.kind.is_create() {
                     // Only trigger for the specific file we're watching, not other files in the directory
-                    let is_our_file = event.paths.iter().any(|p| {
-                        p == &watched_path
-                            || p.file_name() == watched_path.file_name()
-                    });
+                    let is_our_file = event
+                        .paths
+                        .iter()
+                        .any(|p| p == &watched_path || p.file_name() == watched_path.file_name());
                     if is_our_file {
                         let _ = notify_tx.blocking_send(());
                     }

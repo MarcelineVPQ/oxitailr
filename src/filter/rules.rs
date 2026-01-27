@@ -30,14 +30,33 @@ fn safe_regex_compile(pattern: &str) -> Result<Regex, String> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum FilterRule {
-    Contains { pattern: String, case_sensitive: bool },
-    Regex { pattern: String },
-    Level { level: LogLevel, min: bool },
-    Field { name: String, pattern: String },
-    Source { name: String },
-    And { rules: Vec<FilterRule> },
-    Or { rules: Vec<FilterRule> },
-    Not { rule: Box<FilterRule> },
+    Contains {
+        pattern: String,
+        case_sensitive: bool,
+    },
+    Regex {
+        pattern: String,
+    },
+    Level {
+        level: LogLevel,
+        min: bool,
+    },
+    Field {
+        name: String,
+        pattern: String,
+    },
+    Source {
+        name: String,
+    },
+    And {
+        rules: Vec<FilterRule>,
+    },
+    Or {
+        rules: Vec<FilterRule>,
+    },
+    Not {
+        rule: Box<FilterRule>,
+    },
 }
 
 impl FilterRule {
@@ -69,7 +88,10 @@ impl FilterRule {
 impl Filter for FilterRule {
     fn matches(&self, entry: &LogEntry) -> bool {
         match self {
-            FilterRule::Contains { pattern, case_sensitive } => {
+            FilterRule::Contains {
+                pattern,
+                case_sensitive,
+            } => {
                 if *case_sensitive {
                     entry.raw.contains(pattern) || entry.message.contains(pattern)
                 } else {
@@ -78,12 +100,10 @@ impl Filter for FilterRule {
                         || entry.message.to_lowercase().contains(&pattern_lower)
                 }
             }
-            FilterRule::Regex { pattern } => {
-                match safe_regex_compile(pattern) {
-                    Ok(re) => re.is_match(&entry.raw) || re.is_match(&entry.message),
-                    Err(_) => false,
-                }
-            }
+            FilterRule::Regex { pattern } => match safe_regex_compile(pattern) {
+                Ok(re) => re.is_match(&entry.raw) || re.is_match(&entry.message),
+                Err(_) => false,
+            },
             FilterRule::Level { level, min } => {
                 if let Some(entry_level) = &entry.level {
                     if *min {

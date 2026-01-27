@@ -155,10 +155,9 @@ fn format_key_fingerprint(key: &PublicKey) -> String {
 
     // Get the key data as base64
     let key_data = match key {
-        PublicKey::Ed25519(k) => base64::Engine::encode(
-            &base64::engine::general_purpose::STANDARD,
-            k.as_bytes(),
-        ),
+        PublicKey::Ed25519(k) => {
+            base64::Engine::encode(&base64::engine::general_purpose::STANDARD, k.as_bytes())
+        }
         PublicKey::RSA { ref key, .. } => {
             // For RSA, we'd need to serialize the full key - simplified here
             format!("{:?}", key)
@@ -238,7 +237,10 @@ impl client::Handler for SshHandler {
         &mut self,
         server_public_key: &russh_keys::key::PublicKey,
     ) -> Result<bool, Self::Error> {
-        match self.known_hosts.is_known(&self.host, self.port, server_public_key) {
+        match self
+            .known_hosts
+            .is_known(&self.host, self.port, server_public_key)
+        {
             HostKeyStatus::Known => {
                 tracing::info!("SSH host key verified for {}:{}", self.host, self.port);
                 Ok(true)
@@ -433,7 +435,11 @@ async fn run_ssh_tail(
         } else {
             format!("Tried keys: {}", tried_keys.join(", "))
         };
-        let pwd_info = if password.is_some() { ", also tried password" } else { "" };
+        let pwd_info = if password.is_some() {
+            ", also tried password"
+        } else {
+            ""
+        };
         anyhow::bail!("SSH authentication failed. {}{}", key_info, pwd_info);
     }
 

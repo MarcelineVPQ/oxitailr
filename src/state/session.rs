@@ -107,7 +107,11 @@ pub fn load_local_sources(path: &PathBuf) -> Vec<SavedLocalSource> {
     match std::fs::read_to_string(path) {
         Ok(content) => match serde_json::from_str::<Vec<SavedLocalSource>>(&content) {
             Ok(sources) => {
-                tracing::info!("Loaded {} local sources from {}", sources.len(), path.display());
+                tracing::info!(
+                    "Loaded {} local sources from {}",
+                    sources.len(),
+                    path.display()
+                );
                 sources
             }
             Err(e) => {

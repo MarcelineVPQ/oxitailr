@@ -11,26 +11,29 @@ mod source;
 mod state;
 mod ui;
 
+use alert::{AlertDispatcher, AlertEvent, AlertRule};
 use anyhow::Result;
 use clap::Parser as ClapParser;
+use config::AlertConfig;
 use config::{AppConfig, SourceConfig};
 use credentials::{delete_ssh_password, get_ssh_password, store_ssh_password};
 use eframe::egui;
 use egui::IconData;
 use filter::{FilterEngine, FilterRule};
+use glob::glob;
 use models::{LogEntry, LogLevel, SourceInfo, SourceStatus};
 use parser::{auto_detect_parser, Parser, PlainParser};
 use regex::Regex;
 use source::{SourceEvent, SourceManager};
-use state::{load_local_sources, load_session, save_local_sources, save_session, SavedLocalSource, WindowState};
-use glob::glob;
+use state::{
+    load_local_sources, load_session, save_local_sources, save_session, SavedLocalSource,
+    WindowState,
+};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
-use alert::{AlertDispatcher, AlertEvent, AlertRule};
-use config::AlertConfig;
 use ui::{
     default_highlight_rules, find_matching_highlight, format_file_size, log_level_color,
     render_alert_dialog, render_highlight_dialog, render_settings_dialog, render_ssh_dialog,
@@ -52,13 +55,13 @@ fn load_icon() -> Option<IconData> {
 }
 
 /// Check if a path contains glob pattern characters
-fn is_glob_pattern(path: &PathBuf) -> bool {
+fn is_glob_pattern(path: &Path) -> bool {
     let path_str = path.to_string_lossy();
     path_str.contains('*') || path_str.contains('?') || path_str.contains('[')
 }
 
 /// Expand glob patterns to a list of matching files
-fn expand_glob_pattern(pattern: &PathBuf) -> Vec<PathBuf> {
+fn expand_glob_pattern(pattern: &Path) -> Vec<PathBuf> {
     let pattern_str = pattern.to_string_lossy();
     match glob(&pattern_str) {
         Ok(paths) => paths
@@ -236,7 +239,7 @@ struct TailLoggerApp {
     // UI state
     auto_scroll: bool,
     search_text: String,
-    search_matches: Vec<usize>,  // indices of matching lines in filtered view
+    search_matches: Vec<usize>, // indices of matching lines in filtered view
     current_match: Option<usize>, // current match index
     font_size: f32,
     new_lines_received: bool,
@@ -286,11 +289,11 @@ struct TailLoggerApp {
 
     // Bookmarks (per-source: source_name -> line_numbers)
     bookmarks: HashMap<String, HashSet<usize>>,
-    bookmark_jump_target: Option<usize>,  // line number to jump to (for current source)
+    bookmark_jump_target: Option<usize>, // line number to jump to (for current source)
 
     // Vim mode
     vim_mode_enabled: bool,
-    vim_pending_key: Option<char>,  // for 'gg' combo
+    vim_pending_key: Option<char>, // for 'gg' combo
 }
 
 impl TailLoggerApp {
@@ -317,7 +320,7 @@ impl TailLoggerApp {
         let alert_rules: Vec<AlertRule> = config
             .alerts
             .iter()
-            .filter_map(|cfg| convert_alert_config(cfg))
+            .filter_map(convert_alert_config)
             .collect();
 
         // Add rules to dispatcher
@@ -543,7 +546,9 @@ impl TailLoggerApp {
             }
 
             // Restore bookmarks (per-source)
-            self.bookmarks = session.bookmarks.into_iter()
+            self.bookmarks = session
+                .bookmarks
+                .into_iter()
                 .map(|(source, lines)| (source, lines.into_iter().collect()))
                 .collect();
         }
@@ -568,10 +573,18 @@ impl TailLoggerApp {
             }
         }
 
-        let bookmarks: HashMap<String, Vec<usize>> = self.bookmarks.iter()
+        let bookmarks: HashMap<String, Vec<usize>> = self
+            .bookmarks
+            .iter()
             .map(|(source, lines)| (source.clone(), lines.iter().copied().collect()))
             .collect();
-        save_session(&self.session_path, open_local_files, open_ssh_sources, self.window_state.clone(), bookmarks);
+        save_session(
+            &self.session_path,
+            open_local_files,
+            open_ssh_sources,
+            self.window_state.clone(),
+            bookmarks,
+        );
     }
 
     fn open_auto_open_sources(&mut self) {
@@ -616,22 +629,14 @@ impl TailLoggerApp {
     }
 
     fn toggle_local_source_auto_open(&mut self, path: &str) {
-        if let Some(source) = self
-            .saved_local_sources
-            .iter_mut()
-            .find(|s| s.path == path)
-        {
+        if let Some(source) = self.saved_local_sources.iter_mut().find(|s| s.path == path) {
             source.auto_open = !source.auto_open;
             save_local_sources(&self.local_sources_path, &self.saved_local_sources);
         }
     }
 
     fn toggle_ssh_source_auto_open(&mut self, name: &str) {
-        if let Some(source) = self
-            .saved_ssh_sources
-            .iter_mut()
-            .find(|s| s.name == name)
-        {
+        if let Some(source) = self.saved_ssh_sources.iter_mut().find(|s| s.name == name) {
             source.auto_open = !source.auto_open;
             self.save_ssh_sources();
         }
@@ -740,7 +745,15 @@ impl TailLoggerApp {
 
         runtime.block_on(async {
             let mut sm = source_manager.lock().await;
-            sm.add_ssh_source(name.clone(), host, user, path, Some(port), key_path, password);
+            sm.add_ssh_source(
+                name.clone(),
+                host,
+                user,
+                path,
+                Some(port),
+                key_path,
+                password,
+            );
             let _ = sm.start_source(&name).await;
         });
     }
@@ -874,11 +887,12 @@ impl TailLoggerApp {
     }
 
     fn update_filter(&mut self) {
-        self.filter_engine.set_live_filter(if self.filter_text.is_empty() {
-            None
-        } else {
-            Some(self.filter_text.clone())
-        });
+        self.filter_engine
+            .set_live_filter(if self.filter_text.is_empty() {
+                None
+            } else {
+                Some(self.filter_text.clone())
+            });
 
         if !self.filter_text.is_empty() {
             match Regex::new(&self.filter_text) {
@@ -1041,7 +1055,9 @@ impl TailLoggerApp {
                     ui.label(&info.name);
                     ui.label(format!("({})", info.source_type));
 
-                    if info.source_type == models::SourceType::Ssh && ui.small_button("Edit").clicked() {
+                    if info.source_type == models::SourceType::Ssh
+                        && ui.small_button("Edit").clicked()
+                    {
                         to_edit = Some(name.clone());
                     }
 
@@ -1098,8 +1114,11 @@ impl TailLoggerApp {
                     .color(egui::Color32::from_rgb(150, 150, 150)),
             );
 
-            let saved_names: Vec<String> =
-                self.saved_ssh_sources.iter().map(|s| s.name.clone()).collect();
+            let saved_names: Vec<String> = self
+                .saved_ssh_sources
+                .iter()
+                .map(|s| s.name.clone())
+                .collect();
             let active_names: std::collections::HashSet<String> =
                 self.source_infos.keys().cloned().collect();
 
@@ -1725,11 +1744,17 @@ impl eframe::App for TailLoggerApp {
 
                 // Show match count and navigation buttons
                 if !self.search_matches.is_empty() {
-                    ui.label(format!("{}/{}",
+                    ui.label(format!(
+                        "{}/{}",
                         self.current_match.map(|i| i + 1).unwrap_or(0),
-                        self.search_matches.len()));
+                        self.search_matches.len()
+                    ));
 
-                    if ui.button("▲").on_hover_text("Previous match (Shift+F3)").clicked() {
+                    if ui
+                        .button("▲")
+                        .on_hover_text("Previous match (Shift+F3)")
+                        .clicked()
+                    {
                         self.navigate_search_match(false);
                     }
                     if ui.button("▼").on_hover_text("Next match (F3)").clicked() {
@@ -1745,10 +1770,13 @@ impl eframe::App for TailLoggerApp {
                 let current_source = self.selected_source.clone();
                 // Validate source still exists (wasn't closed)
                 let valid_source = current_source.filter(|s| self.source_infos.contains_key(s));
-                tracing::debug!("Bookmark dropdown: selected={:?}, keys={:?}",
+                tracing::debug!(
+                    "Bookmark dropdown: selected={:?}, keys={:?}",
                     self.selected_source,
-                    self.bookmarks.keys().collect::<Vec<_>>());
-                let current_bookmarks: Vec<usize> = valid_source.as_ref()
+                    self.bookmarks.keys().collect::<Vec<_>>()
+                );
+                let current_bookmarks: Vec<usize> = valid_source
+                    .as_ref()
                     .and_then(|s| self.bookmarks.get(s))
                     .map(|b| b.iter().copied().collect())
                     .unwrap_or_default();
@@ -1801,7 +1829,11 @@ impl eframe::App for TailLoggerApp {
                         .iter()
                         .filter(|line| self.line_matches_filter(line))
                         .count();
-                    ui.label(format!("Showing {} of {} lines", filtered_count, state.lines.len()));
+                    ui.label(format!(
+                        "Showing {} of {} lines",
+                        filtered_count,
+                        state.lines.len()
+                    ));
                 }
 
                 let connected_count = self
@@ -1828,8 +1860,11 @@ impl eframe::App for TailLoggerApp {
                         ui.label(
                             egui::RichText::new("[VIM]")
                                 .color(egui::Color32::from_rgb(100, 200, 100))
-                                .strong()
-                        ).on_hover_text("Vim mode: j/k scroll, G/gg jump, Ctrl+d/u page, / search, n/N matches");
+                                .strong(),
+                        )
+                        .on_hover_text(
+                            "Vim mode: j/k scroll, G/gg jump, Ctrl+d/u page, / search, n/N matches",
+                        );
                         ui.separator();
                     }
                     if self.vim_mode_enabled {
@@ -1938,16 +1973,20 @@ impl eframe::App for TailLoggerApp {
             let row_height_with_spacing = row_height + spacing_y;
 
             // Handle bookmark jump - just validate target exists, scroll happens during render via scroll_to_me
-            let bookmark_target_line: Option<usize> = if let Some(target_line_num) = self.bookmark_jump_target.take() {
-                if filtered_lines.iter().any(|line| line.line_num == target_line_num) {
-                    self.auto_scroll = false;
-                    Some(target_line_num)
+            let bookmark_target_line: Option<usize> =
+                if let Some(target_line_num) = self.bookmark_jump_target.take() {
+                    if filtered_lines
+                        .iter()
+                        .any(|line| line.line_num == target_line_num)
+                    {
+                        self.auto_scroll = false;
+                        Some(target_line_num)
+                    } else {
+                        None
+                    }
                 } else {
                     None
-                }
-            } else {
-                None
-            };
+                };
             let visible_height = ui.available_height();
             // Note: max_offset is approximate for wrap_lines mode, but egui handles clamping
             let content_height = total_rows as f32 * row_height_with_spacing;
@@ -2020,7 +2059,8 @@ impl eframe::App for TailLoggerApp {
                     }
                     // k - scroll up one line
                     if i.key_pressed(egui::Key::K) && !i.modifiers.ctrl {
-                        scroll_request = Some((self.current_scroll_offset - row_height_with_spacing).max(0.0));
+                        scroll_request =
+                            Some((self.current_scroll_offset - row_height_with_spacing).max(0.0));
                         self.auto_scroll = false;
                         self.vim_pending_key = None;
                     }
@@ -2085,11 +2125,10 @@ impl eframe::App for TailLoggerApp {
                     }
 
                     // Clear pending key on any other key press that wasn't g
-                    if !i.key_pressed(egui::Key::G) && i.keys_down.iter().any(|_| true) {
-                        if self.vim_pending_key.is_some() {
+                    if !i.key_pressed(egui::Key::G) && i.keys_down.iter().any(|_| true)
+                        && self.vim_pending_key.is_some() {
                             self.vim_pending_key = None;
                         }
-                    }
                 }
             });
 
@@ -2111,7 +2150,9 @@ impl eframe::App for TailLoggerApp {
                 Some(offset)
             } else if let Some(row) = self.scroll_to_row.take() {
                 Some(row as f32 * row_height_with_spacing)
-            } else if total_rows > 0 && (self.initial_scroll_pending || (self.auto_scroll && self.new_lines_received)) {
+            } else if total_rows > 0
+                && (self.initial_scroll_pending || (self.auto_scroll && self.new_lines_received))
+            {
                 self.initial_scroll_pending = false;
                 Some(max_offset * 3.0) // Account for wrapped lines in wrap_lines mode
             } else {
@@ -2131,12 +2172,13 @@ impl eframe::App for TailLoggerApp {
                     ui.spacing_mut().item_spacing.y = 4.0 * line_spacing;
 
                     let mut bookmark_toggle: Option<(String, usize)> = None;
-                    for (_row, line) in filtered_lines.iter().enumerate() {
+                    for line in filtered_lines.iter() {
                         let line_entry = line.entry.clone();
                         let line_raw = line.entry.raw.clone();
                         let line_num = line.line_num;
                         let line_source = line.entry.source.clone();
-                        let is_bookmarked = self.bookmarks
+                        let is_bookmarked = self
+                            .bookmarks
                             .get(&line_source)
                             .map(|b| b.contains(&line_num))
                             .unwrap_or(false);
@@ -2149,11 +2191,18 @@ impl eframe::App for TailLoggerApp {
                             } else {
                                 egui::Color32::from_rgb(100, 100, 100)
                             };
-                            if ui.add(egui::Button::new(
-                                egui::RichText::new(bookmark_icon)
-                                    .size(font_size)
-                                    .color(bookmark_color)
-                            ).frame(false)).on_hover_text("Toggle bookmark").clicked() {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        egui::RichText::new(bookmark_icon)
+                                            .size(font_size)
+                                            .color(bookmark_color),
+                                    )
+                                    .frame(false),
+                                )
+                                .on_hover_text("Toggle bookmark")
+                                .clicked()
+                            {
                                 bookmark_toggle = Some((line_source.clone(), line_num));
                             }
 
@@ -2201,13 +2250,25 @@ impl eframe::App for TailLoggerApp {
                             let has_search_match = !search_lower.is_empty()
                                 && line.entry.message.to_lowercase().contains(&search_lower);
 
-                            let highlight = find_matching_highlight(&highlight_rules, &line.entry.raw);
+                            let highlight =
+                                find_matching_highlight(&highlight_rules, &line.entry.raw);
 
-                            let (fg_color, bg_color, is_bold, is_italic) = if let Some(rule) = highlight {
-                                (rule.foreground, Some(rule.background), rule.bold, rule.italic)
-                            } else {
-                                (log_level_color(line.entry.level.as_ref()), None, false, false)
-                            };
+                            let (fg_color, bg_color, is_bold, is_italic) =
+                                if let Some(rule) = highlight {
+                                    (
+                                        rule.foreground,
+                                        Some(rule.background),
+                                        rule.bold,
+                                        rule.italic,
+                                    )
+                                } else {
+                                    (
+                                        log_level_color(line.entry.level.as_ref()),
+                                        None,
+                                        false,
+                                        false,
+                                    )
+                                };
 
                             let mut text = egui::RichText::new(&line.entry.message)
                                 .monospace()
@@ -2264,7 +2325,11 @@ impl eframe::App for TailLoggerApp {
                             }
                             if ui.button("Copy with Timestamp").clicked() {
                                 let text = if let Some(ts) = &line_entry.timestamp {
-                                    format!("{} {}", ts.format("%Y-%m-%d %H:%M:%S%.3f"), line_entry.message)
+                                    format!(
+                                        "{} {}",
+                                        ts.format("%Y-%m-%d %H:%M:%S%.3f"),
+                                        line_entry.message
+                                    )
                                 } else {
                                     line_entry.message.clone()
                                 };
@@ -2279,7 +2344,8 @@ impl eframe::App for TailLoggerApp {
 
                         // Handle bookmark toggle
                         if let Some((source, ln)) = bookmark_toggle.take() {
-                            let source_bookmarks = self.bookmarks.entry(source).or_insert_with(HashSet::new);
+                            let source_bookmarks =
+                                self.bookmarks.entry(source).or_default();
                             if source_bookmarks.contains(&ln) {
                                 source_bookmarks.remove(&ln);
                             } else {
@@ -2304,7 +2370,8 @@ impl eframe::App for TailLoggerApp {
                             let line_raw = line.entry.raw.clone();
                             let line_num = line.line_num;
                             let line_source = line.entry.source.clone();
-                            let is_bookmarked = self.bookmarks
+                            let is_bookmarked = self
+                                .bookmarks
                                 .get(&line_source)
                                 .map(|b| b.contains(&line_num))
                                 .unwrap_or(false);
@@ -2316,11 +2383,18 @@ impl eframe::App for TailLoggerApp {
                                 } else {
                                     egui::Color32::from_rgb(100, 100, 100)
                                 };
-                                if ui.add(egui::Button::new(
-                                    egui::RichText::new(bookmark_icon)
-                                        .size(font_size)
-                                        .color(bookmark_color)
-                                ).frame(false)).on_hover_text("Toggle bookmark").clicked() {
+                                if ui
+                                    .add(
+                                        egui::Button::new(
+                                            egui::RichText::new(bookmark_icon)
+                                                .size(font_size)
+                                                .color(bookmark_color),
+                                        )
+                                        .frame(false),
+                                    )
+                                    .on_hover_text("Toggle bookmark")
+                                    .clicked()
+                                {
                                     bookmark_toggle = Some((line_source.clone(), line_num));
                                 }
 
@@ -2435,10 +2509,9 @@ impl eframe::App for TailLoggerApp {
                                         for (key, value) in &line.entry.fields {
                                             ui.horizontal(|ui| {
                                                 ui.label(
-                                                    egui::RichText::new(format!("{}:", key))
-                                                        .color(egui::Color32::from_rgb(
-                                                            150, 200, 150,
-                                                        )),
+                                                    egui::RichText::new(format!("{}:", key)).color(
+                                                        egui::Color32::from_rgb(150, 200, 150),
+                                                    ),
                                                 );
                                                 ui.label(format!("{}", value));
                                             });
@@ -2460,7 +2533,11 @@ impl eframe::App for TailLoggerApp {
                                 }
                                 if ui.button("Copy with Timestamp").clicked() {
                                     let text = if let Some(ts) = &line_entry.timestamp {
-                                        format!("{} {}", ts.format("%Y-%m-%d %H:%M:%S%.3f"), line_entry.message)
+                                        format!(
+                                            "{} {}",
+                                            ts.format("%Y-%m-%d %H:%M:%S%.3f"),
+                                            line_entry.message
+                                        )
                                     } else {
                                         line_entry.message.clone()
                                     };
@@ -2475,7 +2552,8 @@ impl eframe::App for TailLoggerApp {
 
                             // Handle bookmark toggle
                             if let Some((source, ln)) = bookmark_toggle.take() {
-                                let source_bookmarks = self.bookmarks.entry(source).or_insert_with(HashSet::new);
+                                let source_bookmarks =
+                                    self.bookmarks.entry(source).or_default();
                                 if source_bookmarks.contains(&ln) {
                                     source_bookmarks.remove(&ln);
                                 } else {
@@ -2532,7 +2610,11 @@ fn main() -> Result<()> {
             if expanded.is_empty() {
                 tracing::warn!("No files matched pattern: {}", file.display());
             } else {
-                tracing::info!("Glob pattern '{}' matched {} files", file.display(), expanded.len());
+                tracing::info!(
+                    "Glob pattern '{}' matched {} files",
+                    file.display(),
+                    expanded.len()
+                );
                 initial_files.extend(expanded);
             }
         } else if file.exists() {
@@ -2566,11 +2648,9 @@ fn main() -> Result<()> {
     // Use saved window size/position if available, otherwise use defaults
     let (width, height) = saved_session
         .as_ref()
-        .and_then(|s| {
-            match (s.window.width, s.window.height) {
-                (Some(w), Some(h)) if w > 100.0 && h > 100.0 => Some((w, h)),
-                _ => None,
-            }
+        .and_then(|s| match (s.window.width, s.window.height) {
+            (Some(w), Some(h)) if w > 100.0 && h > 100.0 => Some((w, h)),
+            _ => None,
         })
         .unwrap_or((1200.0, 800.0));
 
@@ -2603,7 +2683,11 @@ fn main() -> Result<()> {
         options,
         Box::new(move |cc| {
             Ok(Box::new(TailLoggerApp::new(
-                cc, config, config_path, initial_files, runtime,
+                cc,
+                config,
+                config_path,
+                initial_files,
+                runtime,
             )))
         }),
     )

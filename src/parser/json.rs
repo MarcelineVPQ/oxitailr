@@ -29,7 +29,8 @@ impl JsonParser {
                             return Some(dt.with_timezone(&Utc));
                         }
                         // Try common format
-                        if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
+                        if let Ok(dt) =
+                            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S")
                         {
                             return Some(dt.and_utc());
                         }

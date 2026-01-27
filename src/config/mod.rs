@@ -16,8 +16,7 @@ pub fn load_config(path: &Path) -> Result<AppConfig> {
 }
 
 pub fn save_config(config: &AppConfig, path: &Path) -> Result<()> {
-    let content = toml::to_string_pretty(config)
-        .context("Failed to serialize config")?;
+    let content = toml::to_string_pretty(config).context("Failed to serialize config")?;
 
     std::fs::write(path, content)
         .with_context(|| format!("Failed to write config file: {}", path.display()))?;

@@ -36,11 +36,7 @@ impl WebhookAlert {
             raw: &entry.raw,
         };
 
-        self.client
-            .post(url)
-            .json(&payload)
-            .send()
-            .await?;
+        self.client.post(url).json(&payload).send().await?;
 
         Ok(())
     }

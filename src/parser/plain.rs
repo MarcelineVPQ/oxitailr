@@ -8,7 +8,8 @@ static TIMESTAMP_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(
     vec![
         // ISO 8601: 2024-01-22T10:15:32.123Z
         (
-            Regex::new(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)").unwrap(),
+            Regex::new(r"(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)")
+                .unwrap(),
             "%Y-%m-%dT%H:%M:%S%.fZ",
         ),
         // Common log format: 2024-01-22 10:15:32

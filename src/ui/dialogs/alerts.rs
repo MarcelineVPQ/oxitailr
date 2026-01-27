@@ -207,7 +207,8 @@ pub fn render_alert_dialog(
                                 ui.with_layout(
                                     egui::Layout::right_to_left(egui::Align::Center),
                                     |ui| {
-                                        if ui.small_button("🗑").on_hover_text("Delete").clicked() {
+                                        if ui.small_button("🗑").on_hover_text("Delete").clicked()
+                                        {
                                             delete_idx = Some(i);
                                         }
                                         if ui.small_button("✎").on_hover_text("Edit").clicked() {

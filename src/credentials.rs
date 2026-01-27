@@ -22,9 +22,8 @@ pub const ENCRYPTION_NONCE_SIZE: usize = 12;
 const APP_SALT_PREFIX: &[u8] = b"oxitailr-credential-storage-v2";
 
 /// Global credentials cache
-pub static CREDENTIALS_CACHE: LazyLock<Mutex<HashMap<String, String>>> = LazyLock::new(|| {
-    Mutex::new(load_credentials_from_file().unwrap_or_default())
-});
+pub static CREDENTIALS_CACHE: LazyLock<Mutex<HashMap<String, String>>> =
+    LazyLock::new(|| Mutex::new(load_credentials_from_file().unwrap_or_default()));
 
 /// Get the credentials file path
 pub fn get_credentials_path() -> PathBuf {

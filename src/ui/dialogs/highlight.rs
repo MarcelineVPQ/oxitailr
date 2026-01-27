@@ -50,7 +50,10 @@ pub struct HighlightDialogState {
 }
 
 /// Find a matching highlight rule for a line of text
-pub fn find_matching_highlight<'a>(rules: &'a [HighlightRule], text: &str) -> Option<&'a HighlightRule> {
+pub fn find_matching_highlight<'a>(
+    rules: &'a [HighlightRule],
+    text: &str,
+) -> Option<&'a HighlightRule> {
     rules.iter().find(|rule| rule.matches(text))
 }
 
@@ -221,8 +224,7 @@ pub fn render_highlight_dialog(
                         dialog.editing_index = None;
                         dialog.current_rule = HighlightRule::default();
                     }
-                } else if ui.button("Add Rule").clicked()
-                    && !dialog.current_rule.pattern.is_empty()
+                } else if ui.button("Add Rule").clicked() && !dialog.current_rule.pattern.is_empty()
                 {
                     let new_rule = dialog.current_rule.clone();
                     rules.push(new_rule);

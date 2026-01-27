@@ -83,15 +83,11 @@ pub fn render_settings_dialog(
                     ui.end_row();
 
                     ui.label("Line spacing:");
-                    ui.add(
-                        egui::Slider::new(&mut dialog.line_spacing, 0.5..=3.0).step_by(0.1),
-                    );
+                    ui.add(egui::Slider::new(&mut dialog.line_spacing, 0.5..=3.0).step_by(0.1));
                     ui.end_row();
 
                     ui.label("Tab width:");
-                    ui.add(
-                        egui::TextEdit::singleline(&mut dialog.tab_width).desired_width(60.0),
-                    );
+                    ui.add(egui::TextEdit::singleline(&mut dialog.tab_width).desired_width(60.0));
                     ui.end_row();
 
                     ui.label("Show timestamps:");
@@ -139,8 +135,9 @@ pub fn render_settings_dialog(
                     ui.end_row();
 
                     ui.label("Vim keybindings:");
-                    ui.checkbox(&mut dialog.vim_mode, "")
-                        .on_hover_text("j/k scroll, G/gg jump, Ctrl+d/u page, / search, n/N next/prev match");
+                    ui.checkbox(&mut dialog.vim_mode, "").on_hover_text(
+                        "j/k scroll, G/gg jump, Ctrl+d/u page, / search, n/N next/prev match",
+                    );
                     ui.end_row();
 
                     ui.label("");
