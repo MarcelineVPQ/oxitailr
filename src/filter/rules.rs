@@ -1,6 +1,6 @@
 use super::Filter;
-use chrono::Utc;
 use crate::models::{LogEntry, LogLevel};
+use chrono::Utc;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 
@@ -142,12 +142,10 @@ impl Filter for FilterRule {
             FilterRule::And { rules } => rules.iter().all(|r| r.matches(entry)),
             FilterRule::Or { rules } => rules.iter().any(|r| r.matches(entry)),
             FilterRule::Not { rule } => !rule.matches(entry),
-            FilterRule::TimeRange { minutes } => {
-                entry.timestamp.is_some_and(|ts| {
-                    let cutoff = Utc::now() - chrono::Duration::minutes(*minutes as i64);
-                    ts > cutoff
-                })
-            }
+            FilterRule::TimeRange { minutes } => entry.timestamp.is_some_and(|ts| {
+                let cutoff = Utc::now() - chrono::Duration::minutes(*minutes as i64);
+                ts > cutoff
+            }),
         }
     }
 }

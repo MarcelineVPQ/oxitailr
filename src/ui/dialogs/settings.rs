@@ -174,7 +174,9 @@ pub fn render_settings_dialog(
                             ui,
                             &mut egui_color,
                             egui::color_picker::Alpha::Opaque,
-                        ).changed() {
+                        )
+                        .changed()
+                        {
                             *color = [egui_color.r(), egui_color.g(), egui_color.b()];
                         }
                         ui.end_row();

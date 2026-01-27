@@ -1446,7 +1446,9 @@ impl TailLoggerApp {
                     });
             } else if self.builder_rule_type == 4 {
                 ui.label("Last");
-                ui.add(egui::TextEdit::singleline(&mut self.builder_time_minutes).desired_width(40.0));
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.builder_time_minutes).desired_width(40.0),
+                );
                 ui.label("minutes");
             } else {
                 ui.label("Pattern:");
@@ -2285,7 +2287,10 @@ impl eframe::App for TailLoggerApp {
                             }
 
                             if let Some(level) = &line.entry.level {
-                                let level_color = log_level_color(Some(level), Some(&self.config.general.log_level_colors));
+                                let level_color = log_level_color(
+                                    Some(level),
+                                    Some(&self.config.general.log_level_colors),
+                                );
                                 ui.label(
                                     egui::RichText::new(format!("[{:5}] ", level.as_str()))
                                         .monospace()
@@ -2310,7 +2315,10 @@ impl eframe::App for TailLoggerApp {
                                     )
                                 } else {
                                     (
-                                        log_level_color(line.entry.level.as_ref(), Some(&self.config.general.log_level_colors)),
+                                        log_level_color(
+                                            line.entry.level.as_ref(),
+                                            Some(&self.config.general.log_level_colors),
+                                        ),
                                         None,
                                         false,
                                         false,
@@ -2366,7 +2374,11 @@ impl eframe::App for TailLoggerApp {
 
                         // Add click sensing for context menu
                         let row_rect = row_response.response.rect;
-                        let interact_response = ui.interact(row_rect, egui::Id::new(("log_row", line_num)), egui::Sense::click());
+                        let interact_response = ui.interact(
+                            row_rect,
+                            egui::Id::new(("log_row", line_num)),
+                            egui::Sense::click(),
+                        );
 
                         // Context menu for copying
                         interact_response.context_menu(|ui| {
@@ -2480,7 +2492,10 @@ impl eframe::App for TailLoggerApp {
                                 }
 
                                 if let Some(level) = &line.entry.level {
-                                    let level_color = log_level_color(Some(level), Some(&self.config.general.log_level_colors));
+                                    let level_color = log_level_color(
+                                        Some(level),
+                                        Some(&self.config.general.log_level_colors),
+                                    );
                                     ui.label(
                                         egui::RichText::new(format!("[{:5}] ", level.as_str()))
                                             .monospace()
@@ -2533,7 +2548,10 @@ impl eframe::App for TailLoggerApp {
                                         ui.label(text);
                                     }
                                 } else {
-                                    let color = log_level_color(line.entry.level.as_ref(), Some(&self.config.general.log_level_colors));
+                                    let color = log_level_color(
+                                        line.entry.level.as_ref(),
+                                        Some(&self.config.general.log_level_colors),
+                                    );
                                     let mut text = egui::RichText::new(display_text)
                                         .monospace()
                                         .size(font_size)
@@ -2577,7 +2595,11 @@ impl eframe::App for TailLoggerApp {
 
                             // Add click sensing for context menu
                             let row_rect = row_response.response.rect;
-                            let interact_response = ui.interact(row_rect, egui::Id::new(("log_row", line_num)), egui::Sense::click());
+                            let interact_response = ui.interact(
+                                row_rect,
+                                egui::Id::new(("log_row", line_num)),
+                                egui::Sense::click(),
+                            );
 
                             // Context menu for copying
                             interact_response.context_menu(|ui| {

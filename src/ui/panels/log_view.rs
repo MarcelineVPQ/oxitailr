@@ -11,12 +11,20 @@ pub fn log_level_color(
     custom_colors: Option<&LogLevelColors>,
 ) -> egui::Color32 {
     match (level, custom_colors) {
-        (Some(LogLevel::Trace), Some(c)) => egui::Color32::from_rgb(c.trace[0], c.trace[1], c.trace[2]),
-        (Some(LogLevel::Debug), Some(c)) => egui::Color32::from_rgb(c.debug[0], c.debug[1], c.debug[2]),
+        (Some(LogLevel::Trace), Some(c)) => {
+            egui::Color32::from_rgb(c.trace[0], c.trace[1], c.trace[2])
+        }
+        (Some(LogLevel::Debug), Some(c)) => {
+            egui::Color32::from_rgb(c.debug[0], c.debug[1], c.debug[2])
+        }
         (Some(LogLevel::Info), Some(c)) => egui::Color32::from_rgb(c.info[0], c.info[1], c.info[2]),
         (Some(LogLevel::Warn), Some(c)) => egui::Color32::from_rgb(c.warn[0], c.warn[1], c.warn[2]),
-        (Some(LogLevel::Error), Some(c)) => egui::Color32::from_rgb(c.error[0], c.error[1], c.error[2]),
-        (Some(LogLevel::Fatal), Some(c)) => egui::Color32::from_rgb(c.fatal[0], c.fatal[1], c.fatal[2]),
+        (Some(LogLevel::Error), Some(c)) => {
+            egui::Color32::from_rgb(c.error[0], c.error[1], c.error[2])
+        }
+        (Some(LogLevel::Fatal), Some(c)) => {
+            egui::Color32::from_rgb(c.fatal[0], c.fatal[1], c.fatal[2])
+        }
         (Some(LogLevel::Trace), None) => egui::Color32::from_rgb(100, 100, 100),
         (Some(LogLevel::Debug), None) => egui::Color32::from_rgb(140, 140, 140),
         (Some(LogLevel::Info), None) => egui::Color32::from_rgb(80, 180, 220),
