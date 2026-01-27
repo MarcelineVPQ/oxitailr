@@ -1,6 +1,6 @@
 mod settings;
 
-pub use settings::{AppConfig, SourceConfig};
+pub use settings::{AlertConfig, AppConfig, SourceConfig};
 
 use anyhow::{Context, Result};
 use std::path::Path;

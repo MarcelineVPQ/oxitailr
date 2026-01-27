@@ -284,9 +284,9 @@ struct TailLoggerApp {
     // Window state for persistence
     window_state: WindowState,
 
-    // Bookmarks
-    bookmarks: HashSet<usize>,  // bookmarked line numbers
-    bookmark_jump_target: Option<usize>,  // line number to jump to
+    // Bookmarks (per-source: source_name -> line_numbers)
+    bookmarks: HashMap<String, HashSet<usize>>,
+    bookmark_jump_target: Option<usize>,  // line number to jump to (for current source)
 
     // Vim mode
     vim_mode_enabled: bool,
@@ -412,7 +412,7 @@ impl TailLoggerApp {
             alert_rules,
             pending_alerts: Vec::new(),
             window_state: WindowState::default(),
-            bookmarks: HashSet::new(),
+            bookmarks: HashMap::new(),
             bookmark_jump_target: None,
             vim_mode_enabled: false,
             vim_pending_key: None,
@@ -542,8 +542,10 @@ impl TailLoggerApp {
                 }
             }
 
-            // Restore bookmarks
-            self.bookmarks = session.bookmarks.into_iter().collect();
+            // Restore bookmarks (per-source)
+            self.bookmarks = session.bookmarks.into_iter()
+                .map(|(source, lines)| (source, lines.into_iter().collect()))
+                .collect();
         }
     }
 
@@ -566,7 +568,9 @@ impl TailLoggerApp {
             }
         }
 
-        let bookmarks: Vec<usize> = self.bookmarks.iter().copied().collect();
+        let bookmarks: HashMap<String, Vec<usize>> = self.bookmarks.iter()
+            .map(|(source, lines)| (source.clone(), lines.iter().copied().collect()))
+            .collect();
         save_session(&self.session_path, open_local_files, open_ssh_sources, self.window_state.clone(), bookmarks);
     }
 
@@ -1737,8 +1741,18 @@ impl eframe::App for TailLoggerApp {
 
                 ui.separator();
 
-                // Bookmarks dropdown
-                let bookmark_count = self.bookmarks.len();
+                // Bookmarks dropdown (per-source)
+                let current_source = self.selected_source.clone();
+                // Validate source still exists (wasn't closed)
+                let valid_source = current_source.filter(|s| self.source_infos.contains_key(s));
+                tracing::debug!("Bookmark dropdown: selected={:?}, keys={:?}",
+                    self.selected_source,
+                    self.bookmarks.keys().collect::<Vec<_>>());
+                let current_bookmarks: Vec<usize> = valid_source.as_ref()
+                    .and_then(|s| self.bookmarks.get(s))
+                    .map(|b| b.iter().copied().collect())
+                    .unwrap_or_default();
+                let bookmark_count = current_bookmarks.len();
                 let bookmark_label = if bookmark_count > 0 {
                     format!("★ {} bookmarks", bookmark_count)
                 } else {
@@ -1749,11 +1763,11 @@ impl eframe::App for TailLoggerApp {
                 egui::ComboBox::from_id_salt("bookmarks_dropdown")
                     .selected_text(bookmark_label)
                     .show_ui(ui, |ui| {
-                        if self.bookmarks.is_empty() {
+                        if current_bookmarks.is_empty() {
                             ui.label("No bookmarks yet");
                             ui.label("Click ☆ next to a line to add");
                         } else {
-                            let mut sorted_bookmarks: Vec<usize> = self.bookmarks.iter().copied().collect();
+                            let mut sorted_bookmarks = current_bookmarks.clone();
                             sorted_bookmarks.sort();
                             for &line_num in &sorted_bookmarks {
                                 if ui.button(format!("Line {}", line_num)).clicked() {
@@ -1772,7 +1786,9 @@ impl eframe::App for TailLoggerApp {
                     self.auto_scroll = false;
                 }
                 if clear_bookmarks {
-                    self.bookmarks.clear();
+                    if let Some(ref source) = valid_source {
+                        self.bookmarks.remove(source);
+                    }
                 }
             });
         });
@@ -1862,7 +1878,8 @@ impl eframe::App for TailLoggerApp {
             }
 
             ui.horizontal(|ui| {
-                let source_names: Vec<String> = self.source_infos.keys().cloned().collect();
+                let mut source_names: Vec<String> = self.source_infos.keys().cloned().collect();
+                source_names.sort(); // Ensure consistent tab order
 
                 // Auto-select first source if none selected
                 if self.selected_source.is_none() && !source_names.is_empty() {
@@ -2113,12 +2130,16 @@ impl eframe::App for TailLoggerApp {
                 let output = scroll_area.show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 4.0 * line_spacing;
 
-                    let mut bookmark_toggle: Option<usize> = None;
+                    let mut bookmark_toggle: Option<(String, usize)> = None;
                     for (_row, line) in filtered_lines.iter().enumerate() {
                         let line_entry = line.entry.clone();
                         let line_raw = line.entry.raw.clone();
                         let line_num = line.line_num;
-                        let is_bookmarked = self.bookmarks.contains(&line_num);
+                        let line_source = line.entry.source.clone();
+                        let is_bookmarked = self.bookmarks
+                            .get(&line_source)
+                            .map(|b| b.contains(&line_num))
+                            .unwrap_or(false);
 
                         let row_response = ui.horizontal_wrapped(|ui| {
                             // Bookmark toggle
@@ -2133,7 +2154,7 @@ impl eframe::App for TailLoggerApp {
                                     .size(font_size)
                                     .color(bookmark_color)
                             ).frame(false)).on_hover_text("Toggle bookmark").clicked() {
-                                bookmark_toggle = Some(line_num);
+                                bookmark_toggle = Some((line_source.clone(), line_num));
                             }
 
                             ui.label(
@@ -2257,11 +2278,12 @@ impl eframe::App for TailLoggerApp {
                         });
 
                         // Handle bookmark toggle
-                        if let Some(ln) = bookmark_toggle.take() {
-                            if self.bookmarks.contains(&ln) {
-                                self.bookmarks.remove(&ln);
+                        if let Some((source, ln)) = bookmark_toggle.take() {
+                            let source_bookmarks = self.bookmarks.entry(source).or_insert_with(HashSet::new);
+                            if source_bookmarks.contains(&ln) {
+                                source_bookmarks.remove(&ln);
                             } else {
-                                self.bookmarks.insert(ln);
+                                source_bookmarks.insert(ln);
                             }
                         }
                     }
@@ -2274,14 +2296,18 @@ impl eframe::App for TailLoggerApp {
             } else {
                 let output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
                     local_scroll_row = row_range.start;
-                    let mut bookmark_toggle: Option<usize> = None;
+                    let mut bookmark_toggle: Option<(String, usize)> = None;
 
                     for row in row_range {
                         if let Some(line) = filtered_lines.get(row) {
                             let line_entry = line.entry.clone();
                             let line_raw = line.entry.raw.clone();
                             let line_num = line.line_num;
-                            let is_bookmarked = self.bookmarks.contains(&line_num);
+                            let line_source = line.entry.source.clone();
+                            let is_bookmarked = self.bookmarks
+                                .get(&line_source)
+                                .map(|b| b.contains(&line_num))
+                                .unwrap_or(false);
                             let row_response = ui.horizontal(|ui| {
                                 // Bookmark toggle
                                 let bookmark_icon = if is_bookmarked { "★" } else { "☆" };
@@ -2295,7 +2321,7 @@ impl eframe::App for TailLoggerApp {
                                         .size(font_size)
                                         .color(bookmark_color)
                                 ).frame(false)).on_hover_text("Toggle bookmark").clicked() {
-                                    bookmark_toggle = Some(line_num);
+                                    bookmark_toggle = Some((line_source.clone(), line_num));
                                 }
 
                                 ui.label(
@@ -2448,11 +2474,12 @@ impl eframe::App for TailLoggerApp {
                             });
 
                             // Handle bookmark toggle
-                            if let Some(ln) = bookmark_toggle.take() {
-                                if self.bookmarks.contains(&ln) {
-                                    self.bookmarks.remove(&ln);
+                            if let Some((source, ln)) = bookmark_toggle.take() {
+                                let source_bookmarks = self.bookmarks.entry(source).or_insert_with(HashSet::new);
+                                if source_bookmarks.contains(&ln) {
+                                    source_bookmarks.remove(&ln);
                                 } else {
-                                    self.bookmarks.insert(ln);
+                                    source_bookmarks.insert(ln);
                                 }
                             }
                         }

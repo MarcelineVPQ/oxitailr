@@ -1,7 +1,4 @@
-//! Alert system module - currently unused but planned for future integration.
-//! Provides desktop notifications, webhook alerts, and visual/sound alerts.
-
-#![allow(dead_code)]
+//! Alert system module for desktop notifications, webhook alerts, and visual/sound alerts.
 
 mod desktop;
 mod sound;
@@ -18,8 +15,10 @@ use crate::models::LogEntry;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
+use std::time::Instant;
+use tokio::sync::{mpsc, RwLock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AlertRule {
@@ -44,7 +43,8 @@ pub trait Alerter: Send + Sync {
 }
 
 pub struct AlertDispatcher {
-    rules: Vec<AlertRule>,
+    rules: RwLock<Vec<AlertRule>>,
+    cooldowns: RwLock<HashMap<String, Instant>>,
     visual: Arc<VisualAlert>,
     sound: Arc<SoundAlert>,
     desktop: Arc<DesktopNotifier>,
@@ -63,7 +63,8 @@ impl AlertDispatcher {
         let (alert_tx, alert_rx) = mpsc::channel(100);
         (
             Self {
-                rules: Vec::new(),
+                rules: RwLock::new(Vec::new()),
+                cooldowns: RwLock::new(HashMap::new()),
                 visual: Arc::new(VisualAlert::new()),
                 sound: Arc::new(SoundAlert::new()),
                 desktop: Arc::new(DesktopNotifier::new()),
@@ -74,19 +75,60 @@ impl AlertDispatcher {
         )
     }
 
-    pub fn add_rule(&mut self, rule: AlertRule) {
-        self.rules.push(rule);
+    pub async fn add_rule(&self, rule: AlertRule) {
+        let mut rules = self.rules.write().await;
+        rules.push(rule);
     }
 
-    pub fn clear_rules(&mut self) {
-        self.rules.clear();
+    pub async fn clear_rules(&self) {
+        let mut rules = self.rules.write().await;
+        rules.clear();
+        let mut cooldowns = self.cooldowns.write().await;
+        cooldowns.clear();
+    }
+
+    #[allow(dead_code)]
+    pub async fn set_rules(&self, new_rules: Vec<AlertRule>) {
+        let mut rules = self.rules.write().await;
+        *rules = new_rules;
+    }
+
+    #[allow(dead_code)]
+    pub async fn get_rules(&self) -> Vec<AlertRule> {
+        let rules = self.rules.read().await;
+        rules.clone()
+    }
+
+    async fn check_cooldown(&self, rule_name: &str, cooldown_secs: Option<u64>) -> bool {
+        let Some(cooldown) = cooldown_secs else {
+            return true; // No cooldown, always fire
+        };
+
+        let mut cooldowns = self.cooldowns.write().await;
+        let now = Instant::now();
+
+        if let Some(last_fired) = cooldowns.get(rule_name) {
+            if now.duration_since(*last_fired).as_secs() < cooldown {
+                return false; // Still in cooldown
+            }
+        }
+
+        cooldowns.insert(rule_name.to_string(), now);
+        true
     }
 
     pub async fn check_and_alert(&self, entry: &LogEntry) -> Result<()> {
         use crate::filter::Filter;
 
-        for rule in &self.rules {
+        let rules = self.rules.read().await;
+
+        for rule in rules.iter() {
             if rule.pattern.matches(entry) {
+                // Check cooldown
+                if !self.check_cooldown(&rule.name, rule.cooldown_seconds).await {
+                    continue;
+                }
+
                 let _ = self
                     .alert_tx
                     .send(AlertEvent {
@@ -98,30 +140,22 @@ impl AlertDispatcher {
                 for action in &rule.actions {
                     match action {
                         AlertAction::Visual => {
-                            self.visual.alert(entry, rule).await?;
+                            let _ = self.visual.alert(entry, rule).await;
                         }
                         AlertAction::Sound => {
-                            self.sound.alert(entry, rule).await?;
+                            let _ = self.sound.alert(entry, rule).await;
                         }
                         AlertAction::Desktop { .. } => {
-                            self.desktop.alert(entry, rule).await?;
+                            let _ = self.desktop.alert(entry, rule).await;
                         }
                         AlertAction::Webhook { url } => {
-                            self.webhook.send(entry, rule, url).await?;
+                            let _ = self.webhook.send(entry, rule, url).await;
                         }
                     }
                 }
             }
         }
         Ok(())
-    }
-
-    pub fn get_matching_rules(&self, entry: &LogEntry) -> Vec<&AlertRule> {
-        use crate::filter::Filter;
-        self.rules
-            .iter()
-            .filter(|rule| rule.pattern.matches(entry))
-            .collect()
     }
 }
 

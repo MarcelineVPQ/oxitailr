@@ -12,6 +12,8 @@ pub struct WindowState {
     pub height: Option<f32>,
 }
 
+use std::collections::HashMap;
+
 /// Session state for persistence across restarts
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SessionState {
@@ -20,6 +22,9 @@ pub struct SessionState {
     pub timestamp: String,
     #[serde(default)]
     pub window: WindowState,
+    /// Per-source bookmarks: source_name -> line_numbers
+    #[serde(default)]
+    pub bookmarks: HashMap<String, Vec<usize>>,
 }
 
 /// Saved local file source for auto_open feature
@@ -61,12 +66,14 @@ pub fn save_session(
     open_local_files: Vec<String>,
     open_ssh_sources: Vec<String>,
     window: WindowState,
+    bookmarks: HashMap<String, Vec<usize>>,
 ) {
     let session = SessionState {
         open_local_files,
         open_ssh_sources,
         timestamp: chrono::Local::now().to_rfc3339(),
         window,
+        bookmarks,
     };
 
     if let Some(parent) = session_path.parent() {

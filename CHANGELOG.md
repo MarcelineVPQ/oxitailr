@@ -5,6 +5,14 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.14] - 2026-01-26
+
+### Fixed
+- **Per-source bookmarks** - Fixed bookmarks from one tab appearing in another tab's dropdown
+  - Sort source names for consistent tab ordering (HashMap iteration was non-deterministic)
+  - Validate selected source exists before bookmark lookup
+  - Prevents bookmark operations on closed/invalid sources
+
 ## [0.2.13] - 2026-01-25
 
 ### Fixed

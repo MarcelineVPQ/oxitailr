@@ -15,6 +15,7 @@ impl DesktopNotifier {
         }
     }
 
+    #[allow(dead_code)]
     pub fn with_app_name(mut self, name: String) -> Self {
         self.app_name = name;
         self

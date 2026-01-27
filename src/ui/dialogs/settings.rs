@@ -18,6 +18,7 @@ pub struct SettingsDialogState {
     pub update_interval_ms: String,
     pub theme: Theme,
     pub remember_last_session: bool,
+    pub vim_mode: bool,
 }
 
 impl Default for SettingsDialogState {
@@ -36,6 +37,7 @@ impl Default for SettingsDialogState {
             update_interval_ms: "100".to_string(),
             theme: Theme::System,
             remember_last_session: true,
+            vim_mode: false,
         }
     }
 }
@@ -134,6 +136,11 @@ pub fn render_settings_dialog(
 
                     ui.label("Remember last session:");
                     ui.checkbox(&mut dialog.remember_last_session, "");
+                    ui.end_row();
+
+                    ui.label("Vim keybindings:");
+                    ui.checkbox(&mut dialog.vim_mode, "")
+                        .on_hover_text("j/k scroll, G/gg jump, Ctrl+d/u page, / search, n/N next/prev match");
                     ui.end_row();
 
                     ui.label("");
