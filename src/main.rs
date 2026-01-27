@@ -1783,8 +1783,14 @@ impl eframe::App for TailLoggerApp {
                 };
                 let mut jump_to: Option<usize> = None;
                 let mut clear_bookmarks = false;
+                // Use a larger max height for the dropdown to show more bookmarks
+                // Calculate height based on number of bookmarks (roughly 20px per item + padding)
+                let dropdown_height = ((current_bookmarks.len() + 2) as f32 * 24.0)
+                    .max(100.0)
+                    .min(500.0); // Cap at 500px max
                 egui::ComboBox::from_id_salt("bookmarks_dropdown")
                     .selected_text(bookmark_label)
+                    .height(dropdown_height)
                     .show_ui(ui, |ui| {
                         if current_bookmarks.is_empty() {
                             ui.label("No bookmarks yet");
