@@ -45,6 +45,20 @@ jobs:
       - name: Run clippy
         run: cargo clippy -- -D warnings
 
+      - name: Setup Node.js for jscpd
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check for code duplication
+        run: |
+          npx jscpd src/ \
+            --min-lines 10 \
+            --min-tokens 50 \
+            --threshold 5 \
+            --reporters console \
+            --ignore "**/*.md"
+
   build-linux:
     name: Build Linux
     runs-on: ubuntu-latest
