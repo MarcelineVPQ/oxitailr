@@ -1770,11 +1770,6 @@ impl eframe::App for TailLoggerApp {
                 let current_source = self.selected_source.clone();
                 // Validate source still exists (wasn't closed)
                 let valid_source = current_source.filter(|s| self.source_infos.contains_key(s));
-                tracing::debug!(
-                    "Bookmark dropdown: selected={:?}, keys={:?}",
-                    self.selected_source,
-                    self.bookmarks.keys().collect::<Vec<_>>()
-                );
                 let current_bookmarks: Vec<usize> = valid_source
                     .as_ref()
                     .and_then(|s| self.bookmarks.get(s))

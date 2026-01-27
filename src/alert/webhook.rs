@@ -6,7 +6,7 @@ use reqwest::Client;
 use serde::Serialize;
 
 pub struct WebhookAlert {
-    client: Client,
+    client: std::sync::OnceLock<Client>,
 }
 
 #[derive(Serialize)]
@@ -22,8 +22,12 @@ struct WebhookPayload<'a> {
 impl WebhookAlert {
     pub fn new() -> Self {
         Self {
-            client: Client::new(),
+            client: std::sync::OnceLock::new(),
         }
+    }
+
+    fn get_client(&self) -> &Client {
+        self.client.get_or_init(Client::new)
     }
 
     pub async fn send(&self, entry: &LogEntry, rule: &AlertRule, url: &str) -> Result<()> {
@@ -36,7 +40,7 @@ impl WebhookAlert {
             raw: &entry.raw,
         };
 
-        self.client.post(url).json(&payload).send().await?;
+        self.get_client().post(url).json(&payload).send().await?;
 
         Ok(())
     }
