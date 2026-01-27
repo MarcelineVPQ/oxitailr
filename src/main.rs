@@ -2125,10 +2125,12 @@ impl eframe::App for TailLoggerApp {
                     }
 
                     // Clear pending key on any other key press that wasn't g
-                    if !i.key_pressed(egui::Key::G) && i.keys_down.iter().any(|_| true)
-                        && self.vim_pending_key.is_some() {
-                            self.vim_pending_key = None;
-                        }
+                    if !i.key_pressed(egui::Key::G)
+                        && i.keys_down.iter().any(|_| true)
+                        && self.vim_pending_key.is_some()
+                    {
+                        self.vim_pending_key = None;
+                    }
                 }
             });
 
@@ -2344,8 +2346,7 @@ impl eframe::App for TailLoggerApp {
 
                         // Handle bookmark toggle
                         if let Some((source, ln)) = bookmark_toggle.take() {
-                            let source_bookmarks =
-                                self.bookmarks.entry(source).or_default();
+                            let source_bookmarks = self.bookmarks.entry(source).or_default();
                             if source_bookmarks.contains(&ln) {
                                 source_bookmarks.remove(&ln);
                             } else {
@@ -2552,8 +2553,7 @@ impl eframe::App for TailLoggerApp {
 
                             // Handle bookmark toggle
                             if let Some((source, ln)) = bookmark_toggle.take() {
-                                let source_bookmarks =
-                                    self.bookmarks.entry(source).or_default();
+                                let source_bookmarks = self.bookmarks.entry(source).or_default();
                                 if source_bookmarks.contains(&ln) {
                                     source_bookmarks.remove(&ln);
                                 } else {
