@@ -1,4 +1,5 @@
 use super::Filter;
+use chrono::Utc;
 use crate::models::{LogEntry, LogLevel};
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,10 @@ pub enum FilterRule {
     Not {
         rule: Box<FilterRule>,
     },
+    /// Filter to entries from the last N minutes
+    TimeRange {
+        minutes: u64,
+    },
 }
 
 impl FilterRule {
@@ -82,6 +87,10 @@ impl FilterRule {
             name: name.to_string(),
             pattern: pattern.to_string(),
         }
+    }
+
+    pub fn time_range(minutes: u64) -> Self {
+        FilterRule::TimeRange { minutes }
     }
 }
 
@@ -133,6 +142,12 @@ impl Filter for FilterRule {
             FilterRule::And { rules } => rules.iter().all(|r| r.matches(entry)),
             FilterRule::Or { rules } => rules.iter().any(|r| r.matches(entry)),
             FilterRule::Not { rule } => !rule.matches(entry),
+            FilterRule::TimeRange { minutes } => {
+                entry.timestamp.is_some_and(|ts| {
+                    let cutoff = Utc::now() - chrono::Duration::minutes(*minutes as i64);
+                    ts > cutoff
+                })
+            }
         }
     }
 }

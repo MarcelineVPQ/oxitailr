@@ -70,11 +70,32 @@ After implementing all 5 features:
 
 ---
 
+## Quick Wins Sprint - COMPLETED (v0.2.15)
+
+### Feature 7: Custom Log Level Colors - COMPLETED
+- [x] Add LogLevelColors config struct with RGB values for each level
+- [x] Add color pickers in Settings dialog under "Log Level Colors" section
+- [x] Update log_level_color() to use custom colors from config
+- [x] Persist colors to config.toml
+
+### Feature 10: Filter Active Indicator - COMPLETED
+- [x] Add "⊘ Filtered" indicator next to filter input when filter is active
+- [x] Uses orange color for visibility
+
+### Feature 11: Time-based Filtering - COMPLETED
+- [x] Add TimeRange filter rule type to FilterRule enum
+- [x] Implement matches() using chrono to compare timestamps
+- [x] Add "Time Range" option in Advanced filter builder
+- [x] UI allows specifying "Last N minutes"
+
+### Bug Fix: Right-click Context Menu
+- [x] Fixed right-click not working on log rows
+- [x] Added explicit click sensing with ui.interact() on row responses
+
+---
+
 ## Future Features (Backlog)
 
 6. Log Statistics Panel
-7. Custom Log Level Colors
 8. Enhanced Sound Alerts
 9. SSH Known Hosts Auto-Add
-10. Filter Active Indicator
-11. Time-based Filtering

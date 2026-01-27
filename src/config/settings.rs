@@ -19,6 +19,55 @@ pub struct AppConfig {
     pub webhook: Option<WebhookConfig>,
 }
 
+/// Custom colors for log levels (stored as [R, G, B])
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LogLevelColors {
+    #[serde(default = "default_trace_color")]
+    pub trace: [u8; 3],
+    #[serde(default = "default_debug_color")]
+    pub debug: [u8; 3],
+    #[serde(default = "default_info_color")]
+    pub info: [u8; 3],
+    #[serde(default = "default_warn_color")]
+    pub warn: [u8; 3],
+    #[serde(default = "default_error_color")]
+    pub error: [u8; 3],
+    #[serde(default = "default_fatal_color")]
+    pub fatal: [u8; 3],
+}
+
+fn default_trace_color() -> [u8; 3] {
+    [100, 100, 100]
+}
+fn default_debug_color() -> [u8; 3] {
+    [140, 140, 140]
+}
+fn default_info_color() -> [u8; 3] {
+    [80, 180, 220]
+}
+fn default_warn_color() -> [u8; 3] {
+    [220, 180, 50]
+}
+fn default_error_color() -> [u8; 3] {
+    [220, 80, 80]
+}
+fn default_fatal_color() -> [u8; 3] {
+    [255, 50, 150]
+}
+
+impl Default for LogLevelColors {
+    fn default() -> Self {
+        Self {
+            trace: default_trace_color(),
+            debug: default_debug_color(),
+            info: default_info_color(),
+            warn: default_warn_color(),
+            error: default_error_color(),
+            fatal: default_fatal_color(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GeneralConfig {
     #[serde(default = "default_buffer_size")]
@@ -47,6 +96,8 @@ pub struct GeneralConfig {
     pub update_interval_ms: u64,
     #[serde(default = "default_true")]
     pub auto_parse_json: bool,
+    #[serde(default)]
+    pub log_level_colors: LogLevelColors,
 }
 
 fn default_buffer_size() -> usize {
@@ -89,6 +140,7 @@ impl Default for GeneralConfig {
             tab_width: default_tab_width(),
             update_interval_ms: default_update_interval(),
             auto_parse_json: true,
+            log_level_colors: LogLevelColors::default(),
         }
     }
 }

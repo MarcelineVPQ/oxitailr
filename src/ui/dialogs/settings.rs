@@ -1,5 +1,6 @@
 //! Settings configuration dialog.
 
+use crate::config::LogLevelColors;
 use crate::Theme;
 use eframe::egui;
 
@@ -19,6 +20,7 @@ pub struct SettingsDialogState {
     pub theme: Theme,
     pub remember_last_session: bool,
     pub vim_mode: bool,
+    pub log_level_colors: LogLevelColors,
 }
 
 impl Default for SettingsDialogState {
@@ -38,6 +40,7 @@ impl Default for SettingsDialogState {
             theme: Theme::System,
             remember_last_session: true,
             vim_mode: false,
+            log_level_colors: LogLevelColors::default(),
         }
     }
 }
@@ -156,6 +159,33 @@ pub fn render_settings_dialog(
                             ui.selectable_value(&mut dialog.theme, Theme::Dark, "Dark");
                         });
                     ui.end_row();
+
+                    ui.label("");
+                    ui.end_row();
+
+                    // Log Level Colors
+                    ui.label(egui::RichText::new("Log Level Colors").strong());
+                    ui.end_row();
+
+                    fn color_picker_row(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) {
+                        ui.label(label);
+                        let mut egui_color = egui::Color32::from_rgb(color[0], color[1], color[2]);
+                        if egui::color_picker::color_edit_button_srgba(
+                            ui,
+                            &mut egui_color,
+                            egui::color_picker::Alpha::Opaque,
+                        ).changed() {
+                            *color = [egui_color.r(), egui_color.g(), egui_color.b()];
+                        }
+                        ui.end_row();
+                    }
+
+                    color_picker_row(ui, "Trace:", &mut dialog.log_level_colors.trace);
+                    color_picker_row(ui, "Debug:", &mut dialog.log_level_colors.debug);
+                    color_picker_row(ui, "Info:", &mut dialog.log_level_colors.info);
+                    color_picker_row(ui, "Warn:", &mut dialog.log_level_colors.warn);
+                    color_picker_row(ui, "Error:", &mut dialog.log_level_colors.error);
+                    color_picker_row(ui, "Fatal:", &mut dialog.log_level_colors.fatal);
 
                     ui.label("");
                     ui.end_row();

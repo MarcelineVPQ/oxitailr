@@ -235,6 +235,7 @@ struct TailLoggerApp {
     builder_pattern: String,
     builder_field_name: String,
     builder_is_exclude: bool,
+    builder_time_minutes: String,
 
     // UI state
     auto_scroll: bool,
@@ -371,6 +372,7 @@ impl TailLoggerApp {
             builder_pattern: String::new(),
             builder_field_name: String::new(),
             builder_is_exclude: false,
+            builder_time_minutes: "5".to_string(),
             auto_scroll: config.general.follow,
             search_text: String::new(),
             search_matches: Vec::new(),
@@ -821,6 +823,7 @@ impl TailLoggerApp {
         self.settings_dialog.theme = self.theme;
         self.settings_dialog.remember_last_session = self.config.general.remember_last_session;
         self.settings_dialog.vim_mode = self.vim_mode_enabled;
+        self.settings_dialog.log_level_colors = self.config.general.log_level_colors.clone();
         self.settings_dialog.open = true;
     }
 
@@ -861,6 +864,7 @@ impl TailLoggerApp {
         self.config.general.tab_width = self.tab_width;
         self.config.general.update_interval_ms = self.update_interval_ms;
         self.config.general.auto_parse_json = self.use_auto_parser;
+        self.config.general.log_level_colors = self.settings_dialog.log_level_colors.clone();
     }
 
     fn save_alerts_to_config(&mut self) {
@@ -926,6 +930,13 @@ impl TailLoggerApp {
                 }
             }
             3 => FilterRule::field(&self.builder_field_name, &self.builder_pattern),
+            4 => {
+                if let Ok(minutes) = self.builder_time_minutes.parse::<u64>() {
+                    FilterRule::time_range(minutes)
+                } else {
+                    return;
+                }
+            }
             _ => return,
         };
 
@@ -1268,10 +1279,12 @@ impl TailLoggerApp {
             return;
         }
 
+        let mut open = true;
         egui::Window::new("Help")
+            .open(&mut open)
             .collapsible(false)
             .resizable(true)
-            .default_size([500.0, 450.0])
+            .default_size([520.0, 500.0])
             .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
@@ -1284,6 +1297,7 @@ impl TailLoggerApp {
                     ui.add_space(5.0);
                     ui.label("• Local File: Click '+ Local File' to browse and open a local log file");
                     ui.label("• SSH Source: Click '+ SSH' to connect to a remote server via SSH");
+                    ui.label("• Glob patterns: Use wildcards like /var/log/*.log to tail multiple files");
                     ui.add_space(10.0);
 
                     ui.heading("Filtering");
@@ -1291,12 +1305,22 @@ impl TailLoggerApp {
                     ui.label("• Filter bar: Type a regex pattern to filter log lines");
                     ui.label("• Level filters: Use checkboxes to show/hide specific log levels");
                     ui.label("• Advanced: Click 'Advanced' to build complex filter rules");
+                    ui.label("• Time Range: Filter to show only logs from the last N minutes");
+                    ui.label("• Filter indicator: Orange '⊘ Filtered' shows when filter is active");
                     ui.add_space(10.0);
 
-                    ui.heading("Search");
+                    ui.heading("Search & Navigation");
                     ui.add_space(5.0);
                     ui.label("• Use the 'Search' field to highlight matching text");
-                    ui.label("• Matching lines will have a yellow background");
+                    ui.label("• F3 / Shift+F3: Jump to next/previous match");
+                    ui.label("• Click ▲/▼ buttons to navigate between matches");
+                    ui.add_space(10.0);
+
+                    ui.heading("Bookmarks");
+                    ui.add_space(5.0);
+                    ui.label("• Click ☆ next to any line to bookmark it");
+                    ui.label("• Use the Bookmarks dropdown to jump between bookmarks");
+                    ui.label("• Bookmarks persist across sessions");
                     ui.add_space(10.0);
 
                     ui.heading("Keyboard Shortcuts");
@@ -1305,37 +1329,49 @@ impl TailLoggerApp {
                     ui.label("• Ctrl+G: Focus search field");
                     ui.label("• Ctrl+L: Clear log view");
                     ui.label("• Ctrl+O: Open local file");
+                    ui.label("• F3 / Shift+F3: Next/previous search match");
                     ui.label("• Home/End: Jump to first/last line");
                     ui.label("• Page Up/Down: Scroll by page");
                     ui.add_space(10.0);
 
+                    ui.heading("Vim Mode");
+                    ui.add_space(5.0);
+                    ui.label("Enable Vim keybindings in Settings:");
+                    ui.label("• j/k: Scroll down/up by line");
+                    ui.label("• G: Jump to end, gg: Jump to start");
+                    ui.label("• Ctrl+d/u: Page down/up");
+                    ui.label("• /: Focus search, n/N: Next/prev match");
+                    ui.add_space(10.0);
+
                     ui.heading("Settings");
                     ui.add_space(5.0);
-                    ui.label("• Theme: Choose Light, Dark, or System (follows OS preference)");
-                    ui.label("• Font size and line spacing: Adjust display preferences");
-                    ui.label("• Auto-scroll: Keep view at the bottom as new lines arrive");
-                    ui.label("• Buffer size: Maximum number of lines to keep in memory");
-                    ui.label("• Highlight rules: Configure custom highlighting for patterns");
+                    ui.label("• Theme: Choose Light, Dark, or System");
+                    ui.label("• Font size and line spacing: Adjust display");
+                    ui.label("• Log Level Colors: Customize colors for each level");
+                    ui.label("• Highlight rules: Configure pattern-based highlighting");
+                    ui.label("• Buffer size: Maximum lines to keep in memory");
+                    ui.add_space(10.0);
+
+                    ui.heading("Context Menu");
+                    ui.add_space(5.0);
+                    ui.label("Right-click on any log line to:");
+                    ui.label("• Copy Line: Copy the message text");
+                    ui.label("• Copy with Timestamp: Include timestamp");
+                    ui.label("• Copy Raw: Copy the original log line");
                     ui.add_space(10.0);
 
                     ui.heading("SSH Authentication");
                     ui.add_space(5.0);
-                    ui.label("SSH connections try the following methods in order:");
+                    ui.label("SSH connections try methods in order:");
                     ui.label("1. Specified key file (if provided)");
                     ui.label("2. Default keys: ~/.ssh/id_ed25519, id_rsa, id_ecdsa");
                     ui.label("3. Password (if provided)");
                     ui.label("Passwords are stored encrypted locally.");
-                    ui.add_space(15.0);
-
-                    ui.separator();
-                    ui.add_space(10.0);
-                    ui.vertical_centered(|ui| {
-                        if ui.button("Close").clicked() {
-                            self.show_help_dialog = false;
-                        }
-                    });
                 });
             });
+        if !open {
+            self.show_help_dialog = false;
+        }
     }
 
     fn navigate_search_match(&mut self, forward: bool) {
@@ -1375,6 +1411,7 @@ impl TailLoggerApp {
                     1 => "Regex",
                     2 => "Min Level",
                     3 => "Field",
+                    4 => "Time Range",
                     _ => "Unknown",
                 })
                 .show_ui(ui, |ui| {
@@ -1382,6 +1419,7 @@ impl TailLoggerApp {
                     ui.selectable_value(&mut self.builder_rule_type, 1, "Regex");
                     ui.selectable_value(&mut self.builder_rule_type, 2, "Min Level");
                     ui.selectable_value(&mut self.builder_rule_type, 3, "Field");
+                    ui.selectable_value(&mut self.builder_rule_type, 4, "Time Range");
                 });
         });
 
@@ -1393,12 +1431,8 @@ impl TailLoggerApp {
         }
 
         ui.horizontal(|ui| {
-            ui.label(if self.builder_rule_type == 2 {
-                "Level:"
-            } else {
-                "Pattern:"
-            });
             if self.builder_rule_type == 2 {
+                ui.label("Level:");
                 egui::ComboBox::from_id_salt("level_select")
                     .selected_text(&self.builder_pattern)
                     .show_ui(ui, |ui| {
@@ -1410,7 +1444,12 @@ impl TailLoggerApp {
                             );
                         }
                     });
+            } else if self.builder_rule_type == 4 {
+                ui.label("Last");
+                ui.add(egui::TextEdit::singleline(&mut self.builder_time_minutes).desired_width(40.0));
+                ui.label("minutes");
             } else {
+                ui.label("Pattern:");
                 ui.text_edit_singleline(&mut self.builder_pattern);
             }
         });
@@ -1663,6 +1702,12 @@ impl eframe::App for TailLoggerApp {
 
                 if let Some(ref err) = self.filter_error {
                     ui.colored_label(egui::Color32::RED, err);
+                } else if !self.filter_text.is_empty() {
+                    ui.label(
+                        egui::RichText::new("⊘ Filtered")
+                            .color(egui::Color32::from_rgb(255, 180, 100))
+                            .strong(),
+                    );
                 }
 
                 ui.separator();
@@ -2240,7 +2285,7 @@ impl eframe::App for TailLoggerApp {
                             }
 
                             if let Some(level) = &line.entry.level {
-                                let level_color = log_level_color(Some(level));
+                                let level_color = log_level_color(Some(level), Some(&self.config.general.log_level_colors));
                                 ui.label(
                                     egui::RichText::new(format!("[{:5}] ", level.as_str()))
                                         .monospace()
@@ -2265,7 +2310,7 @@ impl eframe::App for TailLoggerApp {
                                     )
                                 } else {
                                     (
-                                        log_level_color(line.entry.level.as_ref()),
+                                        log_level_color(line.entry.level.as_ref(), Some(&self.config.general.log_level_colors)),
                                         None,
                                         false,
                                         false,
@@ -2319,8 +2364,12 @@ impl eframe::App for TailLoggerApp {
                             row_response.response.scroll_to_me(Some(egui::Align::TOP));
                         }
 
+                        // Add click sensing for context menu
+                        let row_rect = row_response.response.rect;
+                        let interact_response = ui.interact(row_rect, egui::Id::new(("log_row", line_num)), egui::Sense::click());
+
                         // Context menu for copying
-                        row_response.response.context_menu(|ui| {
+                        interact_response.context_menu(|ui| {
                             if ui.button("Copy Line").clicked() {
                                 ui.output_mut(|o| o.copied_text = line_entry.message.clone());
                                 ui.close_menu();
@@ -2431,7 +2480,7 @@ impl eframe::App for TailLoggerApp {
                                 }
 
                                 if let Some(level) = &line.entry.level {
-                                    let level_color = log_level_color(Some(level));
+                                    let level_color = log_level_color(Some(level), Some(&self.config.general.log_level_colors));
                                     ui.label(
                                         egui::RichText::new(format!("[{:5}] ", level.as_str()))
                                             .monospace()
@@ -2484,7 +2533,7 @@ impl eframe::App for TailLoggerApp {
                                         ui.label(text);
                                     }
                                 } else {
-                                    let color = log_level_color(line.entry.level.as_ref());
+                                    let color = log_level_color(line.entry.level.as_ref(), Some(&self.config.general.log_level_colors));
                                     let mut text = egui::RichText::new(display_text)
                                         .monospace()
                                         .size(font_size)
@@ -2526,8 +2575,12 @@ impl eframe::App for TailLoggerApp {
                                 row_response.response.scroll_to_me(Some(egui::Align::TOP));
                             }
 
+                            // Add click sensing for context menu
+                            let row_rect = row_response.response.rect;
+                            let interact_response = ui.interact(row_rect, egui::Id::new(("log_row", line_num)), egui::Sense::click());
+
                             // Context menu for copying
-                            row_response.response.context_menu(|ui| {
+                            interact_response.context_menu(|ui| {
                                 if ui.button("Copy Line").clicked() {
                                     ui.output_mut(|o| o.copied_text = line_entry.message.clone());
                                     ui.close_menu();
