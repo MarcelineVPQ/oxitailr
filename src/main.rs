@@ -2194,14 +2194,13 @@ impl eframe::App for TailLoggerApp {
 
             // Determine scroll offset - search navigation and scroll_to_row
             // Bookmark jumps are handled via scroll_to_me() during render
+            // Note: Don't manually set offset when auto_scroll is on - stick_to_bottom handles it
             let scroll_offset: Option<f32> = if let Some(offset) = scroll_request {
                 self.scroll_to_row = None;
                 Some(offset)
             } else if let Some(row) = self.scroll_to_row.take() {
                 Some(row as f32 * row_height_with_spacing)
-            } else if total_rows > 0
-                && (self.initial_scroll_pending || (self.auto_scroll && self.new_lines_received))
-            {
+            } else if total_rows > 0 && self.initial_scroll_pending {
                 self.initial_scroll_pending = false;
                 Some(max_offset * 3.0) // Account for wrapped lines in wrap_lines mode
             } else {
