@@ -2194,7 +2194,6 @@ impl eframe::App for TailLoggerApp {
 
             // Determine scroll offset - search navigation and scroll_to_row
             // Bookmark jumps are handled via scroll_to_me() during render
-            // Note: Don't manually set offset when auto_scroll is on - stick_to_bottom handles it
             let scroll_offset: Option<f32> = if let Some(offset) = scroll_request {
                 self.scroll_to_row = None;
                 Some(offset)
@@ -2207,9 +2206,14 @@ impl eframe::App for TailLoggerApp {
                 None
             };
 
+            // Only enable stick_to_bottom when new lines arrive, not continuously
+            // Continuous stick_to_bottom interferes with click detection (bookmarks)
+            // and conflicts with manual scroll_offset causing shaking
+            let stick_bottom = self.auto_scroll && self.new_lines_received;
+
             let mut scroll_area = egui::ScrollArea::vertical()
                 .auto_shrink([false; 2])
-                .stick_to_bottom(self.auto_scroll);
+                .stick_to_bottom(stick_bottom);
 
             if let Some(offset) = scroll_offset {
                 scroll_area = scroll_area.vertical_scroll_offset(offset);
@@ -2371,16 +2375,8 @@ impl eframe::App for TailLoggerApp {
                             row_response.response.scroll_to_me(Some(egui::Align::TOP));
                         }
 
-                        // Add click sensing for context menu
-                        let row_rect = row_response.response.rect;
-                        let interact_response = ui.interact(
-                            row_rect,
-                            egui::Id::new(("log_row", line_num)),
-                            egui::Sense::click(),
-                        );
-
-                        // Context menu for copying
-                        interact_response.context_menu(|ui| {
+                        // Context menu for copying (use row_response directly, no separate interact)
+                        row_response.response.context_menu(|ui| {
                             if ui.button("Copy Line").clicked() {
                                 ui.output_mut(|o| o.copied_text = line_entry.message.clone());
                                 ui.close_menu();
@@ -2592,16 +2588,8 @@ impl eframe::App for TailLoggerApp {
                                 row_response.response.scroll_to_me(Some(egui::Align::TOP));
                             }
 
-                            // Add click sensing for context menu
-                            let row_rect = row_response.response.rect;
-                            let interact_response = ui.interact(
-                                row_rect,
-                                egui::Id::new(("log_row", line_num)),
-                                egui::Sense::click(),
-                            );
-
-                            // Context menu for copying
-                            interact_response.context_menu(|ui| {
+                            // Context menu for copying (use row_response directly, no separate interact)
+                            row_response.response.context_menu(|ui| {
                                 if ui.button("Copy Line").clicked() {
                                     ui.output_mut(|o| o.copied_text = line_entry.message.clone());
                                     ui.close_menu();
