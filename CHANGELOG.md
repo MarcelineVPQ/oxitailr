@@ -5,6 +5,12 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.16] - 2026-01-28
+
+### Fixed
+- **Auto-scroll shaking** - Fixed UI rapidly shaking when auto-scroll is enabled and viewing the last line
+- **Unicode rendering** - Fixed arrow buttons and symbols showing as boxes by using ASCII equivalents
+
 ## [0.2.14] - 2026-01-26
 
 ### Fixed

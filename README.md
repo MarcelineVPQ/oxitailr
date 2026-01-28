@@ -49,13 +49,13 @@ Download the latest AppImage from the [Releases](https://github.com/MarcelineVPQ
 
 ```bash
 # Download (replace version as needed)
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.14/Oxitailr-0.2.14-x86_64.AppImage
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.16/Oxitailr-0.2.16-x86_64.AppImage
 
 # Make executable
-chmod +x Oxitailr-0.2.14-x86_64.AppImage
+chmod +x Oxitailr-0.2.16-x86_64.AppImage
 
 # Run
-./Oxitailr-0.2.14-x86_64.AppImage
+./Oxitailr-0.2.16-x86_64.AppImage
 ```
 
 No dependencies required - works on most Linux distributions.
@@ -209,6 +209,10 @@ ls -la target/release/oxitailr
 ```
 
 ## Changelog
+
+### v0.2.16
+- Fix auto-scroll causing UI to shake rapidly
+- Fix Unicode arrows/symbols not rendering (use ASCII)
 
 ### v0.2.14
 - Fix per-source bookmarks showing bookmarks from other tabs
