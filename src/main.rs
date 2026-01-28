@@ -1306,14 +1306,14 @@ impl TailLoggerApp {
                     ui.label("• Level filters: Use checkboxes to show/hide specific log levels");
                     ui.label("• Advanced: Click 'Advanced' to build complex filter rules");
                     ui.label("• Time Range: Filter to show only logs from the last N minutes");
-                    ui.label("• Filter indicator: Orange '⊘ Filtered' shows when filter is active");
+                    ui.label("• Filter indicator: Orange '* Filtered' shows when filter is active");
                     ui.add_space(10.0);
 
                     ui.heading("Search & Navigation");
                     ui.add_space(5.0);
                     ui.label("• Use the 'Search' field to highlight matching text");
                     ui.label("• F3 / Shift+F3: Jump to next/previous match");
-                    ui.label("• Click ▲/▼ buttons to navigate between matches");
+                    ui.label("• Click ↑/↓ buttons to navigate between matches");
                     ui.add_space(10.0);
 
                     ui.heading("Bookmarks");
@@ -1706,7 +1706,7 @@ impl eframe::App for TailLoggerApp {
                     ui.colored_label(egui::Color32::RED, err);
                 } else if !self.filter_text.is_empty() {
                     ui.label(
-                        egui::RichText::new("⊘ Filtered")
+                        egui::RichText::new("* Filtered")
                             .color(egui::Color32::from_rgb(255, 180, 100))
                             .strong(),
                     );
@@ -1798,13 +1798,13 @@ impl eframe::App for TailLoggerApp {
                     ));
 
                     if ui
-                        .button("▲")
+                        .button("^")
                         .on_hover_text("Previous match (Shift+F3)")
                         .clicked()
                     {
                         self.navigate_search_match(false);
                     }
-                    if ui.button("▼").on_hover_text("Next match (F3)").clicked() {
+                    if ui.button("v").on_hover_text("Next match (F3)").clicked() {
                         self.navigate_search_match(true);
                     }
                 } else if !self.search_text.is_empty() {
