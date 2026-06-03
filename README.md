@@ -210,35 +210,7 @@ ls -la target/release/oxitailr
 
 ## Changelog
 
-### v0.2.16
-- Fix auto-scroll causing UI to shake rapidly
-- Fix Unicode arrows/symbols not rendering (use ASCII)
-
-### v0.2.14
-- Fix per-source bookmarks showing bookmarks from other tabs
-
-### v0.2.13
-- Fix bookmark navigation scrolling to wrong position
-
-### v0.2.12
-- **Search Navigation** - Jump between search matches with F3/Shift+F3 or ▲/▼ buttons
-- **Copy/Export Log Lines** - Right-click context menu with Copy Line, Copy with Timestamp, Copy Raw
-- **Log Bookmarks** - Click ☆ to bookmark lines, jump back via dropdown, persists across sessions
-- **Glob Pattern Support** - Open multiple files with `oxitailr /var/log/*.log`
-- **Vim Keybindings** - Optional vim-style navigation (enable in Settings)
-
-### v0.2.11
-- Alert System with dialog, desktop notifications, webhooks, and visual indicator
-
-### v0.2.10
-- Fix End key and initial scroll to bottom
-- Fix incorrect AppImage install instructions
-
-### v0.2.9
-- Fix Page Up/Down scrolling
-
-### v0.2.8
-- Add multiple file selection support
+See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.2.17**.
 
 ## License
 

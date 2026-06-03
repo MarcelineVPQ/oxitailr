@@ -5,6 +5,10 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+_Nothing yet._
+
 ## [0.2.17] - 2026-06-03
 
 ### Fixed
@@ -26,6 +30,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Auto-scroll shaking** - Fixed UI rapidly shaking when auto-scroll is enabled and viewing the last line
 - **Unicode rendering** - Fixed arrow buttons and symbols showing as boxes by using ASCII equivalents
 
+## [0.2.15] - 2026-01-26
+
+### Added
+- **Continuous integration** - GitHub Actions pipeline running tests, `cargo fmt`, `clippy`, and a code-duplication (jscpd) check, plus integration tests.
+- Small UX improvements and an updated in-app help dialog.
+
+### Changed
+- Bookmark dropdown now expands to fit more entries.
+- Webhook alert client is created lazily (only when first used).
+
+### Fixed
+- Right-click context-menu handling.
+- Removed excessive debug logging.
+
 ## [0.2.14] - 2026-01-26
 
 ### Fixed
@@ -41,6 +59,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Now uses egui's native `scroll_to_me()` API instead of manual pixel calculations
   - Bookmark target now correctly appears at top of viewport
   - Works correctly in both wrap_lines and non-wrap modes
+
+## [0.2.12] - 2026-01-25
+
+### Added
+- **Search navigation** - Jump between search matches with F3 / Shift+F3 or the ▲/▼ buttons.
+- **Copy / export** - Right-click context menu: Copy Line, Copy with Timestamp, Copy Raw.
+- **Log bookmarks** - Click ☆ to bookmark a line and jump back via the dropdown; persists across sessions.
+- **Glob patterns** - Open multiple files at once, e.g. `oxitailr /var/log/*.log`.
+- **Vim keybindings** - Optional vim-style navigation (enable in Settings).
+
+## [0.2.11] - 2026-01-25
+
+### Added
+- **Alert system** - Rule dialog with desktop notifications, webhooks, and a visual indicator when matching lines arrive.
 
 ## [0.2.10] - 2026-01-25
 
@@ -121,6 +153,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 - **Always-on-top** - Removed feature due to unreliable Wayland support
+- Unused dependencies: `egui_extras`, `tokio-stream`
+- Dead code: 15+ unused functions removed
 
 ### Security
 - SSH paths now properly escaped to prevent command injection
@@ -129,10 +163,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Credential files set to 0600 permissions on Unix
 - Regex patterns limited in size to prevent DoS attacks
 - SSH host keys verified against known_hosts file
-
-### Removed
-- Unused dependencies: `egui_extras`, `tokio-stream`
-- Dead code: 15+ unused functions removed
 
 ## [0.2.0] - 2026-01-22
 
@@ -231,3 +261,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Async runtime with Tokio
 - File watching with notify crate
 - Cross-platform support (Linux, macOS, Windows)
+
+<!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
+     and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.17...HEAD
+[0.2.17]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.16...v0.2.17
+[0.2.16]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.15...v0.2.16
+[0.2.15]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.14...v0.2.15
+[0.2.14]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.13...v0.2.14
+[0.2.13]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.10...v0.2.13
+[0.2.10]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.9...v0.2.10
+[0.2.9]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.8...v0.2.9
+[0.2.8]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.7...v0.2.8
+[0.2.7]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.6...v0.2.7
+[0.2.6]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.5...v0.2.6
+[0.2.5]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.4...v0.2.5
+[0.2.4]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/MarcelineVPQ/oxitailr/releases/tag/v0.2.3
