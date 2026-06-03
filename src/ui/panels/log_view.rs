@@ -140,7 +140,7 @@ impl crate::TailLoggerApp {
             selected_source: self.selected_source.clone(),
         };
         if dynamic_filter || self.filtered_cache_sig.as_ref() != Some(&sig) {
-            let rebuilt: Vec<DisplayLine> = {
+            let rebuilt: Vec<std::sync::Arc<DisplayLine>> = {
                 let state = self.log_state.lock().unwrap();
                 state
                     .lines
@@ -153,6 +153,7 @@ impl crate::TailLoggerApp {
                         }
                         self.line_matches_filter(line)
                     })
+                    // Arc clone: a refcount bump, not a deep copy of the line.
                     .cloned()
                     .collect()
             };
