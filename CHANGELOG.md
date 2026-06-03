@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.18] - 2026-06-03
+
 ### Changed
 - **Much lower CPU usage** - The window no longer repaints continuously (it now follows activity and goes idle when nothing is happening), and the system-theme check — which queried the OS on *every* frame (~8 ms each) — is cached and refreshed at most once every few seconds. This cuts idle CPU to near zero and dramatically reduces active CPU, most noticeably on Windows.
 
@@ -265,7 +269,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.17...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.18...HEAD
+[0.2.18]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.15...v0.2.16
 [0.2.15]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.14...v0.2.15
