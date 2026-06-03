@@ -155,6 +155,9 @@ pub struct FilterEngine {
     exclude_rules: Vec<FilterRule>,
     live_filter: Option<String>,
     compiled_live_filter: Option<Regex>,
+    /// Bumped on every mutation so callers can cheaply detect filter changes
+    /// (e.g. to invalidate a cached filtered view) without diffing the rules.
+    generation: u64,
 }
 
 impl FilterEngine {
@@ -164,25 +167,53 @@ impl FilterEngine {
             exclude_rules: Vec::new(),
             live_filter: None,
             compiled_live_filter: None,
+            generation: 0,
         }
     }
 
     pub fn add_include_rule(&mut self, rule: FilterRule) {
         self.include_rules.push(rule);
+        self.generation += 1;
     }
 
     pub fn add_exclude_rule(&mut self, rule: FilterRule) {
         self.exclude_rules.push(rule);
+        self.generation += 1;
     }
 
     pub fn set_live_filter(&mut self, pattern: Option<String>) {
         self.live_filter = pattern.clone();
         self.compiled_live_filter = pattern.and_then(|p| safe_regex_compile(&p).ok());
+        self.generation += 1;
     }
 
     pub fn clear_rules(&mut self) {
         self.include_rules.clear();
         self.exclude_rules.clear();
+        self.generation += 1;
+    }
+
+    /// A monotonically increasing counter that changes whenever the rule set or
+    /// live filter changes. Use it as part of a cache key for filtered results.
+    pub fn generation(&self) -> u64 {
+        self.generation
+    }
+
+    /// True if any rule's result can change over time without an input change
+    /// (currently only `TimeRange`), meaning a cached filtered view must be
+    /// recomputed every frame rather than keyed on `generation`.
+    pub fn has_dynamic_rules(&self) -> bool {
+        fn is_dynamic(rule: &FilterRule) -> bool {
+            match rule {
+                FilterRule::TimeRange { .. } => true,
+                FilterRule::And { rules } | FilterRule::Or { rules } => {
+                    rules.iter().any(is_dynamic)
+                }
+                FilterRule::Not { rule } => is_dynamic(rule),
+                _ => false,
+            }
+        }
+        self.include_rules.iter().any(is_dynamic) || self.exclude_rules.iter().any(is_dynamic)
     }
 
     pub fn matches(&self, entry: &LogEntry) -> bool {
