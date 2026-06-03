@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.2.20] - 2026-06-03
+
+### Changed
+- **Disabled the accessibility (AccessKit) integration** in the GUI. eframe builds an accessibility tree every frame and talks to the OS accessibility service (UI Automation on Windows, AT-SPI/D-Bus on Linux), a known cause of high CPU on a focused window. This is an experimental CPU-reduction change; the screen-reader integration is removed.
+
 ## [0.2.19] - 2026-06-03
 
 ### Changed
@@ -275,7 +280,8 @@ _Nothing yet._
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.19...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.20...HEAD
+[0.2.20]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.16...v0.2.17
