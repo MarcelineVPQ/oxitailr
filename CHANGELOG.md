@@ -5,6 +5,21 @@ All notable changes to Oxitailr will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.17] - 2026-06-03
+
+### Fixed
+- **Live tailing** - New log lines now appear automatically (within ~250ms) instead of requiring a manual Reload. Added a polling fallback so appends are picked up even when filesystem watch events are missed or coalesced.
+- **Split lines** - A log line written in two flushes is no longer shown as two separate entries.
+
+### Changed
+- **Performance** - The view no longer re-filters and copies the entire buffer every frame, and wrapped-line mode is now virtualized, so large buffers stay responsive.
+- **Responsiveness** - Opening, removing, and reloading sources no longer briefly freezes the window (source operations moved off the UI thread).
+- **Build** - Switched TLS to rustls, removing the system OpenSSL/pkg-config build dependency.
+
+### Internal
+- Extracted the log view and source panel out of `main.rs` into `src/ui/panels/`.
+- Added a tagged-release CI workflow that builds the Linux, Windows, and AppImage binaries.
+
 ## [0.2.16] - 2026-01-28
 
 ### Fixed
