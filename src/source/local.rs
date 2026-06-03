@@ -14,7 +14,16 @@ struct FileState {
     inode: u64,
     last_size: u64,
     last_position: u64,
+    /// Bytes read past the last newline. We hold an unterminated trailing line
+    /// here until its newline arrives, so a line written in two flushes isn't
+    /// emitted as two separate entries.
+    partial: String,
 }
+
+/// Interval between fallback polls of the file. notify events are an
+/// optimization layered on top of this; polling is the source of truth so new
+/// lines are picked up even when the watcher misses or coalesces events.
+const POLL_INTERVAL_MS: u64 = 250;
 
 /// Get the inode of a file (Unix)
 #[cfg(unix)]
@@ -38,6 +47,155 @@ fn get_file_inode(path: &Path) -> std::io::Result<u64> {
 /// Get the current size of a file
 fn get_file_size(path: &Path) -> std::io::Result<u64> {
     Ok(std::fs::metadata(path)?.len())
+}
+
+/// Read from the reader's current position to EOF, emitting one `Line` event per
+/// complete (newline-terminated) line. A trailing chunk with no newline is kept
+/// in `file_state.partial` and prepended to the next read, so a line flushed in
+/// two writes is not split into two entries.
+async fn read_lines_to_eof(
+    name: &str,
+    info: &Arc<Mutex<SourceInfo>>,
+    sender: &mpsc::Sender<SourceEvent>,
+    reader: &mut BufReader<File>,
+    file_state: &mut FileState,
+    line_count: &mut u64,
+) {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match reader.read_line(&mut line).await {
+            Ok(0) => break, // EOF
+            Ok(n) => {
+                file_state.last_position += n as u64;
+                if line.ends_with('\n') {
+                    // Complete line; prepend anything held from a previous read.
+                    let mut full = std::mem::take(&mut file_state.partial);
+                    full.push_str(&line);
+                    let trimmed = full.trim_end();
+                    if !trimmed.is_empty() {
+                        *line_count += 1;
+                        {
+                            let mut info_guard = info.lock().await;
+                            info_guard.line_count = *line_count;
+                        }
+                        let _ = sender
+                            .send(SourceEvent::Line {
+                                source: name.to_string(),
+                                line: trimmed.to_string(),
+                            })
+                            .await;
+                    }
+                } else {
+                    // Hit EOF mid-line; stash and wait for the rest to be written.
+                    file_state.partial.push_str(&line);
+                    break;
+                }
+            }
+            Err(e) => {
+                let _ = sender
+                    .send(SourceEvent::Error {
+                        source: name.to_string(),
+                        error: e.to_string(),
+                    })
+                    .await;
+                break;
+            }
+        }
+    }
+}
+
+/// Emit any held partial line as a final entry and clear it. Used after the
+/// initial historical read so files whose last line lacks a newline still show.
+async fn flush_partial(
+    name: &str,
+    info: &Arc<Mutex<SourceInfo>>,
+    sender: &mpsc::Sender<SourceEvent>,
+    file_state: &mut FileState,
+    line_count: &mut u64,
+) {
+    if file_state.partial.is_empty() {
+        return;
+    }
+    let trimmed = std::mem::take(&mut file_state.partial)
+        .trim_end()
+        .to_string();
+    if !trimmed.is_empty() {
+        *line_count += 1;
+        {
+            let mut info_guard = info.lock().await;
+            info_guard.line_count = *line_count;
+        }
+        let _ = sender
+            .send(SourceEvent::Line {
+                source: name.to_string(),
+                line: trimmed,
+            })
+            .await;
+    }
+}
+
+/// Detect rotation/truncation (reopening the file if needed), then read any new
+/// content to EOF. Shared by both the notify-event path and the polling fallback.
+async fn read_new_content(
+    path: &Path,
+    name: &str,
+    info: &Arc<Mutex<SourceInfo>>,
+    sender: &mpsc::Sender<SourceEvent>,
+    reader: &mut BufReader<File>,
+    file_state: &mut FileState,
+    line_count: &mut u64,
+) {
+    // Check for log rotation.
+    let rotation_detected = if let Ok(current_inode) = get_file_inode(path) {
+        if current_inode != file_state.inode {
+            // Inode changed - file was replaced (e.g., by logrotate).
+            true
+        } else if let Ok(current_size) = get_file_size(path) {
+            // File truncated (size shrank below where we last read).
+            if current_size < file_state.last_position {
+                true
+            } else {
+                file_state.last_size = current_size;
+                let mut info_guard = info.lock().await;
+                info_guard.file_size = Some(current_size);
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        // File might not exist yet after rotation; try again next tick.
+        false
+    };
+
+    if rotation_detected {
+        // Give the new file a moment to be ready.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        if let Ok(new_file) = File::open(path).await {
+            let _ = sender
+                .send(SourceEvent::Line {
+                    source: name.to_string(),
+                    line: "--- Log rotation detected, continuing with new file ---".to_string(),
+                })
+                .await;
+
+            file_state.inode = get_file_inode(path).unwrap_or(0);
+            file_state.last_size = get_file_size(path).unwrap_or(0);
+            file_state.last_position = 0;
+            file_state.partial.clear();
+
+            *reader = BufReader::new(new_file);
+
+            tracing::info!(
+                "Log rotation detected for {}, reopened file",
+                path.display()
+            );
+        }
+    }
+
+    read_lines_to_eof(name, info, sender, reader, file_state, line_count).await;
 }
 
 pub struct LocalFileSource {
@@ -70,9 +228,9 @@ impl Source for LocalFileSource {
     }
 
     fn info(&self) -> SourceInfo {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async { self.info.lock().await.clone() })
-        })
+        // Synchronous snapshot; callers are off the runtime. Status updates also
+        // reach the UI via `SourceEvent::StatusChange`.
+        self.info.blocking_lock().clone()
     }
 
     async fn start(&mut self, sender: mpsc::Sender<SourceEvent>) -> Result<()> {
@@ -151,6 +309,7 @@ async fn run_local_tail(
         inode: initial_inode,
         last_size: initial_size,
         last_position: 0,
+        partial: String::new(),
     };
 
     {
@@ -166,44 +325,24 @@ async fn run_local_tail(
     }
 
     let mut reader = BufReader::new(file);
-    let mut line = String::new();
     let mut line_count: u64 = 0;
 
-    // Read existing content from the file first
-    loop {
-        line.clear();
-        match reader.read_line(&mut line).await {
-            Ok(0) => break, // End of file
-            Ok(n) => {
-                file_state.last_position += n as u64;
-                let trimmed = line.trim_end().to_string();
-                if !trimmed.is_empty() {
-                    line_count += 1;
+    // Read existing content from the file first.
+    read_lines_to_eof(
+        &name,
+        &info,
+        &sender,
+        &mut reader,
+        &mut file_state,
+        &mut line_count,
+    )
+    .await;
 
-                    {
-                        let mut info_guard = info.lock().await;
-                        info_guard.line_count = line_count;
-                    }
-
-                    let _ = sender
-                        .send(SourceEvent::Line {
-                            source: name.clone(),
-                            line: trimmed,
-                        })
-                        .await;
-                }
-            }
-            Err(e) => {
-                let _ = sender
-                    .send(SourceEvent::Error {
-                        source: name.clone(),
-                        error: e.to_string(),
-                    })
-                    .await;
-                break;
-            }
-        }
-    }
+    // Flush a trailing line with no terminating newline so static files (and any
+    // historical content) display in full. During live tailing below we instead
+    // hold partials until their newline arrives, to avoid splitting one logical
+    // line into two entries.
+    flush_partial(&name, &info, &sender, &mut file_state, &mut line_count).await;
 
     // Set up file watcher for new content
     let (notify_tx, mut notify_rx) = mpsc::channel(100);
@@ -235,7 +374,15 @@ async fn run_local_tail(
         watcher.watch(&path_for_watcher, RecursiveMode::NonRecursive)?;
     }
 
-    // Now tail for new lines
+    // Now tail for new lines. The poll interval is the source of truth; notify
+    // events just let us react faster between polls. Relying on notify alone is
+    // unreliable — events get coalesced or dropped depending on how the writer
+    // flushes, the filesystem, or editors that rename-on-save — which is what
+    // made new lines fail to appear until a manual reload.
+    let mut poll_interval =
+        tokio::time::interval(std::time::Duration::from_millis(POLL_INTERVAL_MS));
+    poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
     loop {
         tokio::select! {
             _ = stop_rx.changed() => {
@@ -244,87 +391,10 @@ async fn run_local_tail(
                 }
             }
             _ = notify_rx.recv() => {
-                // Check for log rotation
-                let rotation_detected = if let Ok(current_inode) = get_file_inode(&path) {
-                    if current_inode != file_state.inode {
-                        // Inode changed - file was replaced (e.g., by logrotate)
-                        true
-                    } else if let Ok(current_size) = get_file_size(&path) {
-                        // Check if file was truncated (size < last position)
-                        if current_size < file_state.last_position {
-                            true
-                        } else {
-                            file_state.last_size = current_size;
-                            // Update file size in info
-                            let mut info_guard = info.lock().await;
-                            info_guard.file_size = Some(current_size);
-                            false
-                        }
-                    } else {
-                        false
-                    }
-                } else {
-                    // File might not exist yet after rotation, wait for it
-                    false
-                };
-
-                if rotation_detected {
-                    // Wait a bit for the new file to be ready
-                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-
-                    // Try to open the new file
-                    if let Ok(new_file) = File::open(&path).await {
-                        // Send rotation notification
-                        let _ = sender
-                            .send(SourceEvent::Line {
-                                source: name.clone(),
-                                line: "--- Log rotation detected, continuing with new file ---".to_string(),
-                            })
-                            .await;
-
-                        // Update file state
-                        file_state.inode = get_file_inode(&path).unwrap_or(0);
-                        file_state.last_size = get_file_size(&path).unwrap_or(0);
-                        file_state.last_position = 0;
-
-                        // Create new reader
-                        reader = BufReader::new(new_file);
-
-                        tracing::info!("Log rotation detected for {}, reopened file", path.display());
-                    }
-                }
-
-                // Read new lines
-                loop {
-                    line.clear();
-                    match reader.read_line(&mut line).await {
-                        Ok(0) => break, // No more data
-                        Ok(n) => {
-                            file_state.last_position += n as u64;
-                            let trimmed = line.trim_end().to_string();
-                            if !trimmed.is_empty() {
-                                line_count += 1;
-
-                                {
-                                    let mut info_guard = info.lock().await;
-                                    info_guard.line_count = line_count;
-                                }
-
-                                let _ = sender.send(SourceEvent::Line {
-                                    source: name.clone(),
-                                    line: trimmed,
-                                }).await;
-                            }
-                        }
-                        Err(e) => {
-                            let _ = sender.send(SourceEvent::Error {
-                                source: name.clone(),
-                                error: e.to_string(),
-                            }).await;
-                            break;
-                        }
-                    }
-                }
+                read_new_content(&path, &name, &info, &sender, &mut reader, &mut file_state, &mut line_count).await;
+            }
+            _ = poll_interval.tick() => {
+                read_new_content(&path, &name, &info, &sender, &mut reader, &mut file_state, &mut line_count).await;
             }
         }
     }
@@ -339,4 +409,103 @@ async fn run_local_tail(
         .await;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    /// Wait for the next `Line` event, skipping status/error events. Returns
+    /// `None` on timeout or channel close.
+    async fn next_line(rx: &mut mpsc::Receiver<SourceEvent>, dur: Duration) -> Option<String> {
+        loop {
+            match timeout(dur, rx.recv()).await {
+                Ok(Some(SourceEvent::Line { line, .. })) => return Some(line),
+                Ok(Some(_)) => continue, // ignore StatusChange / Error
+                Ok(None) | Err(_) => return None,
+            }
+        }
+    }
+
+    /// The polling fallback must surface appended lines even if no notify event
+    /// fires — this is the core "behaves like a tail logger" guarantee.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn polling_picks_up_appended_lines() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.log");
+        std::fs::write(&path, "first line\n").unwrap();
+
+        let mut source = LocalFileSource::new("test".to_string(), path.clone());
+        let (tx, mut rx) = mpsc::channel(100);
+        source.start(tx).await.unwrap();
+
+        assert_eq!(
+            next_line(&mut rx, Duration::from_secs(2)).await.as_deref(),
+            Some("first line")
+        );
+
+        // Append after the source is running.
+        {
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            writeln!(f, "second line").unwrap();
+        }
+
+        assert_eq!(
+            next_line(&mut rx, Duration::from_secs(2)).await.as_deref(),
+            Some("second line")
+        );
+
+        source.stop().await.unwrap();
+    }
+
+    /// A line flushed in two writes (no intervening newline) must arrive as one
+    /// entry, not be split across the partial-read boundary.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn partial_line_is_not_split() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.log");
+        std::fs::write(&path, "").unwrap();
+
+        let mut source = LocalFileSource::new("test".to_string(), path.clone());
+        let (tx, mut rx) = mpsc::channel(100);
+        source.start(tx).await.unwrap();
+
+        // Let the initial (empty) read complete before writing, so the fragment
+        // is seen by the live-tail path rather than the historical read (which
+        // intentionally flushes a trailing unterminated line).
+        tokio::time::sleep(Duration::from_millis(400)).await;
+
+        // First flush: a fragment with no newline.
+        {
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            write!(f, "hello ").unwrap();
+            f.flush().unwrap();
+        }
+        // Let at least one poll observe the fragment.
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        // Second flush completes the line.
+        {
+            let mut f = std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)
+                .unwrap();
+            writeln!(f, "world").unwrap();
+        }
+
+        assert_eq!(
+            next_line(&mut rx, Duration::from_secs(2)).await.as_deref(),
+            Some("hello world")
+        );
+
+        source.stop().await.unwrap();
+    }
 }
