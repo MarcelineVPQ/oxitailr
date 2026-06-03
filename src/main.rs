@@ -299,6 +299,12 @@ struct TailLoggerApp {
     tab_width: usize,
     update_interval_ms: u64,
     theme: Theme,
+    // Theme application cache: avoid calling dark_light::detect() and
+    // set_visuals() on every frame (both are surprisingly expensive — detect()
+    // hits the OS theme service / Windows registry).
+    applied_theme_key: Option<(Theme, bool)>,
+    system_is_light: bool,
+    last_system_theme_check: std::time::Instant,
 
     // Highlighting
     highlight_rules: Vec<HighlightRule>,
@@ -440,6 +446,9 @@ impl TailLoggerApp {
             tab_width: config.general.tab_width,
             update_interval_ms: config.general.update_interval_ms,
             theme: config.general.theme,
+            applied_theme_key: None,
+            system_is_light: dark_light::detect() == dark_light::Mode::Light,
+            last_system_theme_check: std::time::Instant::now(),
             highlight_rules: default_highlight_rules(),
             highlight_dialog: HighlightDialogState::default(),
             saved_ssh_sources: Vec::new(),
@@ -1297,7 +1306,16 @@ impl eframe::App for TailLoggerApp {
             }
         });
 
-        ctx.request_repaint_after(std::time::Duration::from_millis(self.update_interval_ms));
+        // Schedule the next frame based on activity instead of repainting at a
+        // fixed rate forever. While lines are actively arriving we keep the
+        // configured cadence; when idle we poll slowly just to pick up the next
+        // line/status change. egui still repaints immediately on user input.
+        let repaint_delay = if self.new_lines_received {
+            self.update_interval_ms
+        } else {
+            self.update_interval_ms.max(250)
+        };
+        ctx.request_repaint_after(std::time::Duration::from_millis(repaint_delay));
 
         // Handle SSH dialog
         match render_ssh_dialog(ctx, &mut self.ssh_dialog, &self.ssh_sources_path) {
@@ -1381,19 +1399,29 @@ impl eframe::App for TailLoggerApp {
             AlertDialogResult::None => {}
         }
 
-        // Apply theme
-        match self.theme {
-            Theme::Light => ctx.set_visuals(egui::Visuals::light()),
-            Theme::Dark => ctx.set_visuals(egui::Visuals::dark()),
+        // Apply theme. egui keeps the last-set visuals across frames, so we only
+        // call set_visuals() when the effective theme actually changes. For the
+        // System theme we re-query the OS at most once every few seconds rather
+        // than every frame (dark_light::detect() is comparatively expensive).
+        let is_light = match self.theme {
+            Theme::Light => true,
+            Theme::Dark => false,
             Theme::System => {
-                // Use system preference if available, otherwise default to dark
-                let visuals = if dark_light::detect() == dark_light::Mode::Light {
-                    egui::Visuals::light()
-                } else {
-                    egui::Visuals::dark()
-                };
-                ctx.set_visuals(visuals);
+                if self.last_system_theme_check.elapsed() >= std::time::Duration::from_secs(3) {
+                    self.system_is_light = dark_light::detect() == dark_light::Mode::Light;
+                    self.last_system_theme_check = std::time::Instant::now();
+                }
+                self.system_is_light
             }
+        };
+        let theme_key = (self.theme, is_light);
+        if self.applied_theme_key != Some(theme_key) {
+            ctx.set_visuals(if is_light {
+                egui::Visuals::light()
+            } else {
+                egui::Visuals::dark()
+            });
+            self.applied_theme_key = Some(theme_key);
         }
 
         // Top panel with controls
