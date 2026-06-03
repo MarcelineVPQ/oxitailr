@@ -27,3 +27,34 @@ pub enum SourceEvent {
     StatusChange { source: String, info: SourceInfo },
     Error { source: String, error: String },
 }
+
+/// Commands sent from the UI thread to the async task that owns the
+/// [`SourceManager`]. This keeps all source start/stop work off the UI thread
+/// (it previously called `runtime.block_on`, which froze the window).
+#[derive(Debug)]
+pub enum SourceCommand {
+    AddLocal {
+        name: String,
+        path: std::path::PathBuf,
+    },
+    AddSsh {
+        name: String,
+        host: String,
+        user: String,
+        path: String,
+        port: Option<u16>,
+        key_path: Option<std::path::PathBuf>,
+        password: Option<String>,
+    },
+    Remove {
+        name: String,
+    },
+    /// Stop then restart the named sources (re-reads each file from the start).
+    Reload {
+        names: Vec<String>,
+    },
+    /// Stop the named sources (best-effort, used on shutdown).
+    StopAll {
+        names: Vec<String>,
+    },
+}
