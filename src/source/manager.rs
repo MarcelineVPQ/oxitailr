@@ -1,4 +1,4 @@
-use super::{LocalFileSource, Source, SourceEvent, SshSource};
+use super::{LocalFileSource, Source, SourceCommand, SourceEvent, SshSource};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -65,6 +65,52 @@ impl SourceManager {
             source.stop().await?;
         }
         Ok(())
+    }
+
+    /// Take ownership of the manager and process [`SourceCommand`]s until the
+    /// channel closes. Run this on the async runtime so all source start/stop
+    /// work stays off the UI thread.
+    pub async fn run(mut self, mut commands: mpsc::UnboundedReceiver<SourceCommand>) {
+        while let Some(cmd) = commands.recv().await {
+            match cmd {
+                SourceCommand::AddLocal { name, path } => {
+                    self.add_local_source(name.clone(), path);
+                    if let Err(e) = self.start_source(&name).await {
+                        tracing::error!("Failed to start source '{}': {}", name, e);
+                    }
+                }
+                SourceCommand::AddSsh {
+                    name,
+                    host,
+                    user,
+                    path,
+                    port,
+                    key_path,
+                    password,
+                } => {
+                    self.add_ssh_source(name.clone(), host, user, path, port, key_path, password);
+                    if let Err(e) = self.start_source(&name).await {
+                        tracing::error!("Failed to start source '{}': {}", name, e);
+                    }
+                }
+                SourceCommand::Remove { name } => {
+                    let _ = self.stop_source(&name).await;
+                }
+                SourceCommand::Reload { names } => {
+                    for name in &names {
+                        let _ = self.stop_source(name).await;
+                    }
+                    for name in &names {
+                        let _ = self.start_source(name).await;
+                    }
+                }
+                SourceCommand::StopAll { names } => {
+                    for name in &names {
+                        let _ = self.stop_source(name).await;
+                    }
+                }
+            }
+        }
     }
 }
 

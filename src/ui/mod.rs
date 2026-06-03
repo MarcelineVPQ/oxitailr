@@ -10,7 +10,7 @@ pub use dialogs::{
     HighlightDialogState, HighlightRule, SavedSshSource, SettingsDialogResult, SettingsDialogState,
     SshDialogResult, SshDialogState,
 };
-pub use panels::{log_level_color, DisplayLine};
+pub use panels::DisplayLine;
 
 /// Format file size in human-readable format
 pub fn format_file_size(bytes: u64) -> String {

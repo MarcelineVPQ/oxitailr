@@ -1,5 +1,6 @@
 //! UI panel modules.
 
 pub mod log_view;
+pub mod source_panel;
 
-pub use log_view::{log_level_color, DisplayLine};
+pub use log_view::DisplayLine;

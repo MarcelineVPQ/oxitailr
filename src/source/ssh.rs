@@ -284,9 +284,9 @@ impl Source for SshSource {
     }
 
     fn info(&self) -> SourceInfo {
-        tokio::task::block_in_place(|| {
-            tokio::runtime::Handle::current().block_on(async { self.info.lock().await.clone() })
-        })
+        // Synchronous snapshot; callers are off the runtime. Status updates also
+        // reach the UI via `SourceEvent::StatusChange`.
+        self.info.blocking_lock().clone()
     }
 
     async fn start(&mut self, sender: mpsc::Sender<SourceEvent>) -> Result<()> {

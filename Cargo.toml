@@ -1,6 +1,6 @@
 [package]
 name = "oxitailr"
-version = "0.2.16"
+version = "0.2.17"
 edition = "2021"
 description = "A modern, feature-rich log viewer with GUI interface"
 authors = ["Oxitailr Contributors"]
@@ -44,8 +44,9 @@ clap = { version = "4.4", features = ["derive"] }
 # Notifications
 notify-rust = "4.10"
 
-# HTTP client
-reqwest = { version = "0.12", features = ["json"] }
+# HTTP client (rustls instead of native-tls to avoid an OpenSSL system dependency,
+# which also keeps the Windows cross-compile and AppImage builds self-contained)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Logging
 tracing = "0.1"

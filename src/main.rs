@@ -24,7 +24,7 @@ use glob::glob;
 use models::{LogEntry, LogLevel, SourceInfo, SourceStatus};
 use parser::{auto_detect_parser, Parser, PlainParser};
 use regex::Regex;
-use source::{SourceEvent, SourceManager};
+use source::{SourceCommand, SourceEvent, SourceManager};
 use state::{
     load_local_sources, load_session, save_local_sources, save_session, SavedLocalSource,
     WindowState,
@@ -35,10 +35,10 @@ use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
 use ui::{
-    default_highlight_rules, find_matching_highlight, format_file_size, log_level_color,
-    render_alert_dialog, render_highlight_dialog, render_settings_dialog, render_ssh_dialog,
-    AlertDialogResult, AlertDialogState, DisplayLine, HighlightDialogState, HighlightRule,
-    SavedSshSource, SettingsDialogResult, SettingsDialogState, SshDialogResult, SshDialogState,
+    default_highlight_rules, find_matching_highlight, format_file_size, render_alert_dialog,
+    render_highlight_dialog, render_settings_dialog, render_ssh_dialog, AlertDialogResult,
+    AlertDialogState, DisplayLine, HighlightDialogState, HighlightRule, SavedSshSource,
+    SettingsDialogResult, SettingsDialogState, SshDialogResult, SshDialogState,
 };
 
 // Embed the icon at compile time
@@ -141,6 +141,10 @@ struct LogState {
     lines: VecDeque<DisplayLine>,
     max_lines: usize,
     total_lines_read: usize,
+    /// Monotonically increasing on every mutation (add/clear/resize). Used as a
+    /// cheap cache key so the UI only rebuilds its filtered view when the buffer
+    /// actually changes, instead of cloning every line each frame.
+    version: u64,
 }
 
 impl LogState {
@@ -149,6 +153,7 @@ impl LogState {
             lines: VecDeque::with_capacity(max_lines),
             max_lines,
             total_lines_read: 0,
+            version: 0,
         }
     }
 
@@ -159,6 +164,23 @@ impl LogState {
             self.lines.pop_front();
         }
         self.lines.push_back(display_line);
+        self.version += 1;
+    }
+
+    /// Drop all buffered lines and reset the line counter (used on reload).
+    fn clear(&mut self) {
+        self.lines.clear();
+        self.total_lines_read = 0;
+        self.version += 1;
+    }
+
+    /// Change the ring-buffer capacity, trimming oldest lines if it shrank.
+    fn set_max_lines(&mut self, max_lines: usize) {
+        self.max_lines = max_lines;
+        while self.lines.len() > self.max_lines {
+            self.lines.pop_front();
+        }
+        self.version += 1;
     }
 }
 
@@ -199,14 +221,26 @@ fn convert_alert_rule(rule: &AlertRule) -> AlertConfig {
     }
 }
 
+/// Cache key for the filtered view. When this is unchanged between frames the
+/// previously computed `filtered_cache` can be reused without re-filtering or
+/// cloning the entire buffer.
+#[derive(Clone, PartialEq)]
+struct FilterSig {
+    log_version: u64,
+    filter_generation: u64,
+    levels: [bool; 6],
+    selected_source: Option<String>,
+}
+
 struct TailLoggerApp {
     // Core state
     log_state: Arc<Mutex<LogState>>,
     config: AppConfig,
     config_path: PathBuf,
 
-    // Source management
-    source_manager: Arc<tokio::sync::Mutex<SourceManager>>,
+    // Source management. The SourceManager lives on the async runtime; the UI
+    // talks to it only through this channel so start/stop never blocks the UI.
+    source_cmd_tx: mpsc::UnboundedSender<SourceCommand>,
     source_infos: HashMap<String, SourceInfo>,
     event_rx: Option<mpsc::Receiver<SourceEvent>>,
     runtime: Arc<Runtime>,
@@ -228,6 +262,16 @@ struct TailLoggerApp {
     show_fatal: bool,
     filter_presets: Vec<FilterPreset>,
     selected_preset: Option<usize>,
+
+    // Cached filtered view, rebuilt only when the buffer or filter inputs change
+    filtered_cache: Vec<DisplayLine>,
+    filtered_cache_sig: Option<FilterSig>,
+
+    // Per-row measured heights for wrap-mode virtualization (parallel to the
+    // filtered view). Updated from the real rendered rect each frame and reset
+    // when the view or layout width changes.
+    wrap_row_heights: Vec<f32>,
+    wrap_heights_width: f32,
 
     // Advanced filter builder
     show_filter_builder: bool,
@@ -308,10 +352,12 @@ impl TailLoggerApp {
         let buffer_size = config.general.buffer_size;
         let log_state = Arc::new(Mutex::new(LogState::new(buffer_size)));
 
-        // Create source manager
+        // Create source manager. It is moved onto the runtime and driven by a
+        // command channel so the UI never blocks on source start/stop.
         let mut source_manager = SourceManager::new();
         let event_rx = source_manager.take_event_receiver();
-        let source_manager = Arc::new(tokio::sync::Mutex::new(source_manager));
+        let (source_cmd_tx, source_cmd_rx) = mpsc::unbounded_channel();
+        runtime.spawn(source_manager.run(source_cmd_rx));
 
         // Create alert dispatcher
         let (alert_dispatcher, alert_rx) = AlertDispatcher::new();
@@ -349,7 +395,7 @@ impl TailLoggerApp {
             log_state,
             config: config.clone(),
             config_path,
-            source_manager,
+            source_cmd_tx,
             source_infos: HashMap::new(),
             event_rx,
             runtime,
@@ -367,6 +413,10 @@ impl TailLoggerApp {
             show_fatal: true,
             filter_presets,
             selected_preset: None,
+            filtered_cache: Vec::new(),
+            filtered_cache_sig: None,
+            wrap_row_heights: Vec::new(),
+            wrap_heights_width: 0.0,
             show_filter_builder: false,
             builder_rule_type: 0,
             builder_pattern: String::new(),
@@ -694,41 +744,36 @@ impl TailLoggerApp {
             .map(|n| n.to_string_lossy().to_string())
             .unwrap_or_else(|| "local".to_string());
 
-        let source_manager = self.source_manager.clone();
-        let runtime = self.runtime.clone();
-
-        runtime.block_on(async {
-            let mut sm = source_manager.lock().await;
-            sm.add_local_source(name.clone(), path);
-            let _ = sm.start_source(&name).await;
-        });
+        let _ = self
+            .source_cmd_tx
+            .send(SourceCommand::AddLocal { name, path });
     }
 
     fn add_source_from_config(&mut self, source_config: SourceConfig) {
-        let source_manager = self.source_manager.clone();
-        let runtime = self.runtime.clone();
-
-        runtime.block_on(async {
-            let mut sm = source_manager.lock().await;
-            match source_config {
-                SourceConfig::Local { name, path, .. } => {
-                    sm.add_local_source(name.clone(), PathBuf::from(path));
-                    let _ = sm.start_source(&name).await;
-                }
-                SourceConfig::Ssh {
-                    name,
-                    host,
-                    port,
-                    user,
-                    path,
-                    key_path,
-                    ..
-                } => {
-                    sm.add_ssh_source(name.clone(), host, user, path, Some(port), key_path, None);
-                    let _ = sm.start_source(&name).await;
-                }
-            }
-        });
+        let cmd = match source_config {
+            SourceConfig::Local { name, path, .. } => SourceCommand::AddLocal {
+                name,
+                path: PathBuf::from(path),
+            },
+            SourceConfig::Ssh {
+                name,
+                host,
+                port,
+                user,
+                path,
+                key_path,
+                ..
+            } => SourceCommand::AddSsh {
+                name,
+                host,
+                user,
+                path,
+                port: Some(port),
+                key_path,
+                password: None,
+            },
+        };
+        let _ = self.source_cmd_tx.send(cmd);
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -742,34 +787,22 @@ impl TailLoggerApp {
         key_path: Option<PathBuf>,
         password: Option<String>,
     ) {
-        let source_manager = self.source_manager.clone();
-        let runtime = self.runtime.clone();
-
-        runtime.block_on(async {
-            let mut sm = source_manager.lock().await;
-            sm.add_ssh_source(
-                name.clone(),
-                host,
-                user,
-                path,
-                Some(port),
-                key_path,
-                password,
-            );
-            let _ = sm.start_source(&name).await;
+        let _ = self.source_cmd_tx.send(SourceCommand::AddSsh {
+            name,
+            host,
+            user,
+            path,
+            port: Some(port),
+            key_path,
+            password,
         });
     }
 
     fn remove_source(&mut self, name: &str) {
-        let source_manager = self.source_manager.clone();
-        let runtime = self.runtime.clone();
         let name = name.to_string();
-
-        runtime.block_on(async {
-            let mut sm = source_manager.lock().await;
-            let _ = sm.stop_source(&name).await;
-        });
-
+        let _ = self
+            .source_cmd_tx
+            .send(SourceCommand::Remove { name: name.clone() });
         self.source_infos.remove(&name);
     }
 
@@ -788,25 +821,13 @@ impl TailLoggerApp {
     fn reload_sources(&mut self) {
         // Clear log state
         if let Ok(mut state) = self.log_state.lock() {
-            state.lines.clear();
-            state.total_lines_read = 0;
+            state.clear();
         }
 
         self.initial_scroll_pending = true;
 
-        let source_manager = self.source_manager.clone();
-        let runtime = self.runtime.clone();
-        let source_names: Vec<String> = self.source_infos.keys().cloned().collect();
-
-        runtime.block_on(async {
-            let mut sm = source_manager.lock().await;
-            for name in &source_names {
-                let _ = sm.stop_source(name).await;
-            }
-            for name in &source_names {
-                let _ = sm.start_source(name).await;
-            }
-        });
+        let names: Vec<String> = self.source_infos.keys().cloned().collect();
+        let _ = self.source_cmd_tx.send(SourceCommand::Reload { names });
     }
 
     fn open_settings_dialog(&mut self) {
@@ -849,7 +870,7 @@ impl TailLoggerApp {
         if let Ok(size) = self.settings_dialog.buffer_size.parse::<usize>() {
             self.config.general.buffer_size = size;
             if let Ok(mut state) = self.log_state.lock() {
-                state.max_lines = size;
+                state.set_max_lines(size);
             }
         }
 
@@ -1014,220 +1035,6 @@ impl TailLoggerApp {
                 }
             }
         }
-    }
-
-    fn render_source_panel(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Sources");
-        ui.separator();
-
-        let source_names: Vec<String> = self.source_infos.keys().cloned().collect();
-        let mut to_remove = Vec::new();
-        let mut to_edit: Option<String> = None;
-        let mut toggle_auto_open_local: Option<String> = None;
-        let mut toggle_auto_open_ssh: Option<String> = None;
-
-        for name in &source_names {
-            if let Some(info) = self.source_infos.get(name) {
-                ui.horizontal(|ui| {
-                    let is_auto_open = match info.source_type {
-                        models::SourceType::Local => self.is_local_source_auto_open(&info.path),
-                        models::SourceType::Ssh => self.is_ssh_source_auto_open(name),
-                    };
-                    let star = if is_auto_open { "★" } else { "☆" };
-                    let star_color = if is_auto_open {
-                        egui::Color32::from_rgb(255, 200, 50)
-                    } else {
-                        egui::Color32::from_rgb(100, 100, 100)
-                    };
-                    if ui
-                        .add(
-                            egui::Button::new(egui::RichText::new(star).color(star_color))
-                                .frame(false),
-                        )
-                        .on_hover_text("Toggle auto-open on startup")
-                        .clicked()
-                    {
-                        match info.source_type {
-                            models::SourceType::Local => {
-                                toggle_auto_open_local = Some(info.path.clone())
-                            }
-                            models::SourceType::Ssh => toggle_auto_open_ssh = Some(name.clone()),
-                        }
-                    }
-
-                    let status_color = match info.status {
-                        SourceStatus::Connected => egui::Color32::from_rgb(50, 205, 50),
-                        SourceStatus::Connecting => egui::Color32::from_rgb(255, 200, 0),
-                        SourceStatus::Disconnected => egui::Color32::from_rgb(150, 150, 150),
-                        SourceStatus::Error => egui::Color32::from_rgb(255, 50, 50),
-                    };
-
-                    ui.colored_label(status_color, info.status_symbol());
-                    ui.label(&info.name);
-                    ui.label(format!("({})", info.source_type));
-
-                    if info.source_type == models::SourceType::Ssh
-                        && ui.small_button("Edit").clicked()
-                    {
-                        to_edit = Some(name.clone());
-                    }
-
-                    if ui.small_button("x").clicked() {
-                        to_remove.push(name.clone());
-                    }
-                });
-
-                ui.label(
-                    egui::RichText::new(format!("  {} lines", info.line_count))
-                        .small()
-                        .color(egui::Color32::from_rgb(150, 150, 150)),
-                );
-            }
-        }
-
-        if let Some(path) = toggle_auto_open_local {
-            if self.find_saved_local_source(&path).is_none() {
-                let name = PathBuf::from(&path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "local".to_string());
-                self.update_or_add_local_source(SavedLocalSource {
-                    name,
-                    path: path.clone(),
-                    auto_open: true,
-                });
-            } else {
-                self.toggle_local_source_auto_open(&path);
-            }
-        }
-        if let Some(name) = toggle_auto_open_ssh {
-            self.toggle_ssh_source_auto_open(&name);
-        }
-
-        if let Some(name) = to_edit {
-            if let Some(saved) = self.find_saved_ssh_source(&name).cloned() {
-                self.ssh_dialog.load_from_saved(&saved);
-                self.ssh_dialog.open = true;
-            }
-        }
-
-        for name in to_remove {
-            self.remove_source(&name);
-        }
-
-        ui.separator();
-
-        // Saved SSH sources section
-        if !self.saved_ssh_sources.is_empty() {
-            ui.label(
-                egui::RichText::new("Saved SSH Sources")
-                    .small()
-                    .color(egui::Color32::from_rgb(150, 150, 150)),
-            );
-
-            let saved_names: Vec<String> = self
-                .saved_ssh_sources
-                .iter()
-                .map(|s| s.name.clone())
-                .collect();
-            let active_names: std::collections::HashSet<String> =
-                self.source_infos.keys().cloned().collect();
-
-            let mut connect_source: Option<SavedSshSource> = None;
-            let mut delete_source: Option<String> = None;
-            let mut edit_saved: Option<SavedSshSource> = None;
-            let mut toggle_saved_auto_open: Option<String> = None;
-
-            for name in &saved_names {
-                let is_active = active_names.contains(name);
-                if !is_active {
-                    ui.horizontal(|ui| {
-                        let is_auto_open = self.is_ssh_source_auto_open(name);
-                        let star = if is_auto_open { "★" } else { "☆" };
-                        let star_color = if is_auto_open {
-                            egui::Color32::from_rgb(255, 200, 50)
-                        } else {
-                            egui::Color32::from_rgb(100, 100, 100)
-                        };
-                        if ui
-                            .add(
-                                egui::Button::new(
-                                    egui::RichText::new(star).color(star_color).small(),
-                                )
-                                .frame(false),
-                            )
-                            .on_hover_text("Toggle auto-open on startup")
-                            .clicked()
-                        {
-                            toggle_saved_auto_open = Some(name.clone());
-                        }
-
-                        ui.label(
-                            egui::RichText::new(name)
-                                .small()
-                                .color(egui::Color32::from_rgb(120, 120, 120)),
-                        );
-
-                        if ui.small_button("Connect").clicked() {
-                            if let Some(saved) = self.find_saved_ssh_source(name).cloned() {
-                                connect_source = Some(saved);
-                            }
-                        }
-
-                        if ui.small_button("Edit").clicked() {
-                            if let Some(saved) = self.find_saved_ssh_source(name).cloned() {
-                                edit_saved = Some(saved);
-                            }
-                        }
-
-                        if ui.small_button("x").clicked() {
-                            delete_source = Some(name.clone());
-                        }
-                    });
-                }
-            }
-
-            if let Some(name) = toggle_saved_auto_open {
-                self.toggle_ssh_source_auto_open(&name);
-            }
-
-            if let Some(source) = connect_source {
-                let key_path = source.key_path.as_ref().map(PathBuf::from);
-                let password = get_ssh_password(&source.name);
-                self.add_ssh_source(
-                    source.name,
-                    source.host,
-                    source.port,
-                    source.user,
-                    source.remote_path,
-                    key_path,
-                    password,
-                );
-            }
-
-            if let Some(source) = edit_saved {
-                self.ssh_dialog.load_from_saved(&source);
-                self.ssh_dialog.open = true;
-            }
-
-            if let Some(name) = delete_source {
-                self.remove_saved_ssh_source(&name);
-            }
-
-            ui.separator();
-        }
-
-        ui.horizontal(|ui| {
-            if ui.button("+ Local File").clicked() {
-                self.open_file_dialog();
-            }
-
-            if ui.button("+ SSH").clicked() {
-                self.ssh_dialog.open = true;
-                self.ssh_dialog.reset();
-                self.ssh_dialog.port = "22".to_string();
-            }
-        });
     }
 
     fn render_about_dialog(&mut self, ctx: &egui::Context) {
@@ -1677,8 +1484,7 @@ impl eframe::App for TailLoggerApp {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if ui.button("Clear").clicked() {
                         if let Ok(mut state) = self.log_state.lock() {
-                            state.lines.clear();
-                            state.total_lines_read = 0;
+                            state.clear();
                         }
                         self.initial_scroll_pending = true;
                     }
@@ -1932,721 +1738,17 @@ impl eframe::App for TailLoggerApp {
         }
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if self.source_infos.is_empty() {
-                ui.vertical_centered(|ui| {
-                    ui.add_space(100.0);
-                    ui.heading("Welcome to Oxitailr");
-                    ui.add_space(20.0);
-                    ui.label("Add a log source to get started");
-                    ui.add_space(20.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("📂 Open Local File").clicked() {
-                            self.open_file_dialog();
-                        }
-                        if ui.button("🔗 Add SSH Source").clicked() {
-                            self.ssh_dialog.open = true;
-                            self.ssh_dialog.reset();
-                            self.ssh_dialog.port = "22".to_string();
-                        }
-                    });
-                    ui.add_space(40.0);
-                    ui.label("Or run from command line:");
-                    ui.code("oxitailr /path/to/file.log");
-                    ui.add_space(20.0);
-                    ui.label("Config file location:");
-                    ui.code(self.config_path.display().to_string());
-                });
-                return;
-            }
-
-            ui.horizontal(|ui| {
-                let mut source_names: Vec<String> = self.source_infos.keys().cloned().collect();
-                source_names.sort(); // Ensure consistent tab order
-
-                // Auto-select first source if none selected
-                if self.selected_source.is_none() && !source_names.is_empty() {
-                    self.selected_source = Some(source_names[0].clone());
-                }
-
-                for name in &source_names {
-                    let is_selected = self.selected_source.as_ref() == Some(name);
-                    let info = self.source_infos.get(name);
-
-                    let status_symbol = info.map(|i| i.status_symbol()).unwrap_or("?");
-                    let tab_text = format!("{} {}", status_symbol, name);
-
-                    if ui.selectable_label(is_selected, tab_text).clicked() {
-                        self.selected_source = Some(name.clone());
-                    }
-                }
-            });
-
-            ui.separator();
-
-            let text_style = egui::TextStyle::Monospace;
-            let row_height =
-                ui.text_style_height(&text_style) * (self.font_size / 13.0) * self.line_spacing;
-
-            let font_size = self.font_size;
-            let line_spacing = self.line_spacing;
-            let show_source = self.show_source;
-            let show_timestamps = self.show_timestamps;
-            let source_count = self.source_infos.len();
-            let highlight_rules = self.highlight_rules.clone();
-
-            let filtered_lines: Vec<DisplayLine> = {
-                let state = self.log_state.lock().unwrap();
-                state
-                    .lines
-                    .iter()
-                    .filter(|line| {
-                        if let Some(ref selected) = self.selected_source {
-                            if &line.entry.source != selected {
-                                return false;
-                            }
-                        }
-                        self.line_matches_filter(line)
-                    })
-                    .cloned()
-                    .collect()
-            };
-
-            let total_rows = filtered_lines.len();
-            let search_lower = self.search_text.to_lowercase();
-            let mut local_scroll_row = self.current_scroll_row;
-
-            // Calculate row height including spacing (what show_rows uses internally)
-            let spacing_y = ui.spacing().item_spacing.y;
-            let row_height_with_spacing = row_height + spacing_y;
-
-            // Handle bookmark jump - just validate target exists, scroll happens during render via scroll_to_me
-            let bookmark_target_line: Option<usize> =
-                if let Some(target_line_num) = self.bookmark_jump_target.take() {
-                    if filtered_lines
-                        .iter()
-                        .any(|line| line.line_num == target_line_num)
-                    {
-                        self.auto_scroll = false;
-                        Some(target_line_num)
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                };
-            let visible_height = ui.available_height();
-            // Note: max_offset is approximate for wrap_lines mode, but egui handles clamping
-            let content_height = total_rows as f32 * row_height_with_spacing;
-            let max_offset = (content_height - visible_height).max(0.0);
-
-            // Build search matches
-            if !search_lower.is_empty() {
-                let new_matches: Vec<usize> = filtered_lines
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, line)| line.entry.message.to_lowercase().contains(&search_lower))
-                    .map(|(i, _)| i)
-                    .collect();
-
-                if new_matches != self.search_matches {
-                    self.search_matches = new_matches;
-                    // Reset current match if it's now out of bounds
-                    if let Some(idx) = self.current_match {
-                        if idx >= self.search_matches.len() {
-                            self.current_match = if self.search_matches.is_empty() {
-                                None
-                            } else {
-                                Some(0)
-                            };
-                        }
-                    }
-                }
-            } else {
-                self.search_matches.clear();
-                self.current_match = None;
-            }
-
-            let mut scroll_request: Option<f32> = None;
-            let mut search_nav_forward: Option<bool> = None;
-            let mut focus_search: bool = false;
-            let text_input_focused = ctx.memory(|m| m.focused().is_some());
-
-            ctx.input(|i| {
-                if i.key_pressed(egui::Key::PageDown) {
-                    let page_size = visible_height * 0.9;
-                    scroll_request = Some(self.current_scroll_offset + page_size);
-                    self.auto_scroll = false;
-                }
-                if i.key_pressed(egui::Key::PageUp) {
-                    let page_size = visible_height * 0.9;
-                    scroll_request = Some((self.current_scroll_offset - page_size).max(0.0));
-                    self.auto_scroll = false;
-                }
-                if i.key_pressed(egui::Key::Home) {
-                    scroll_request = Some(0.0);
-                    self.auto_scroll = false;
-                }
-                if i.key_pressed(egui::Key::End) {
-                    // Use 3x max_offset to account for wrapped lines in wrap_lines mode
-                    scroll_request = Some(max_offset * 3.0);
-                    self.auto_scroll = true;
-                }
-                // F3 for next match, Shift+F3 for previous match
-                if i.key_pressed(egui::Key::F3) {
-                    search_nav_forward = Some(!i.modifiers.shift);
-                }
-
-                // Vim mode keybindings (only when no text input is focused)
-                if self.vim_mode_enabled && !text_input_focused {
-                    // j - scroll down one line
-                    if i.key_pressed(egui::Key::J) && !i.modifiers.ctrl {
-                        scroll_request = Some(self.current_scroll_offset + row_height_with_spacing);
-                        self.auto_scroll = false;
-                        self.vim_pending_key = None;
-                    }
-                    // k - scroll up one line
-                    if i.key_pressed(egui::Key::K) && !i.modifiers.ctrl {
-                        scroll_request =
-                            Some((self.current_scroll_offset - row_height_with_spacing).max(0.0));
-                        self.auto_scroll = false;
-                        self.vim_pending_key = None;
-                    }
-                    // G (shift+g) - jump to end
-                    if i.key_pressed(egui::Key::G) && i.modifiers.shift {
-                        scroll_request = Some(max_offset * 3.0);
-                        self.auto_scroll = true;
-                        self.vim_pending_key = None;
-                    }
-                    // g - first press stores pending, second press jumps to start
-                    if i.key_pressed(egui::Key::G) && !i.modifiers.shift {
-                        if self.vim_pending_key == Some('g') {
-                            scroll_request = Some(0.0);
-                            self.auto_scroll = false;
-                            self.vim_pending_key = None;
-                        } else {
-                            self.vim_pending_key = Some('g');
-                        }
-                    }
-                    // Ctrl+d - page down
-                    if i.key_pressed(egui::Key::D) && i.modifiers.ctrl {
-                        let page_size = visible_height * 0.5;
-                        scroll_request = Some(self.current_scroll_offset + page_size);
-                        self.auto_scroll = false;
-                        self.vim_pending_key = None;
-                    }
-                    // Ctrl+u - page up
-                    if i.key_pressed(egui::Key::U) && i.modifiers.ctrl {
-                        let page_size = visible_height * 0.5;
-                        scroll_request = Some((self.current_scroll_offset - page_size).max(0.0));
-                        self.auto_scroll = false;
-                        self.vim_pending_key = None;
-                    }
-                    // Ctrl+f - page down (alternate)
-                    if i.key_pressed(egui::Key::F) && i.modifiers.ctrl {
-                        let page_size = visible_height * 0.9;
-                        scroll_request = Some(self.current_scroll_offset + page_size);
-                        self.auto_scroll = false;
-                        self.vim_pending_key = None;
-                    }
-                    // Ctrl+b - page up (alternate)
-                    if i.key_pressed(egui::Key::B) && i.modifiers.ctrl {
-                        let page_size = visible_height * 0.9;
-                        scroll_request = Some((self.current_scroll_offset - page_size).max(0.0));
-                        self.auto_scroll = false;
-                        self.vim_pending_key = None;
-                    }
-                    // / - focus search field
-                    if i.key_pressed(egui::Key::Slash) {
-                        focus_search = true;
-                        self.vim_pending_key = None;
-                    }
-                    // n - next search match
-                    if i.key_pressed(egui::Key::N) && !i.modifiers.shift && !i.modifiers.ctrl {
-                        search_nav_forward = Some(true);
-                        self.vim_pending_key = None;
-                    }
-                    // N (shift+n) - previous search match
-                    if i.key_pressed(egui::Key::N) && i.modifiers.shift {
-                        search_nav_forward = Some(false);
-                        self.vim_pending_key = None;
-                    }
-
-                    // Clear pending key on any other key press that wasn't g
-                    if !i.key_pressed(egui::Key::G)
-                        && i.keys_down.iter().any(|_| true)
-                        && self.vim_pending_key.is_some()
-                    {
-                        self.vim_pending_key = None;
-                    }
-                }
-            });
-
-            // Handle search navigation after input block
-            if let Some(forward) = search_nav_forward {
-                self.navigate_search_match(forward);
-            }
-
-            // Focus search field for vim / command
-            if focus_search {
-                // We'll need to focus the search field - handled via request_focus on the search text edit
-                // For now, just clear the search text to indicate focus
-            }
-
-            // Determine scroll offset - search navigation and scroll_to_row
-            // Bookmark jumps are handled via scroll_to_me() during render
-            let scroll_offset: Option<f32> = if let Some(offset) = scroll_request {
-                self.scroll_to_row = None;
-                Some(offset)
-            } else if let Some(row) = self.scroll_to_row.take() {
-                Some(row as f32 * row_height_with_spacing)
-            } else if total_rows > 0 && self.initial_scroll_pending {
-                self.initial_scroll_pending = false;
-                Some(max_offset * 3.0) // Account for wrapped lines in wrap_lines mode
-            } else {
-                None
-            };
-
-            // Only enable stick_to_bottom when new lines arrive, not continuously
-            // Continuous stick_to_bottom interferes with click detection (bookmarks)
-            // and conflicts with manual scroll_offset causing shaking
-            let stick_bottom = self.auto_scroll && self.new_lines_received;
-
-            let mut scroll_area = egui::ScrollArea::vertical()
-                .auto_shrink([false; 2])
-                .stick_to_bottom(stick_bottom);
-
-            if let Some(offset) = scroll_offset {
-                scroll_area = scroll_area.vertical_scroll_offset(offset);
-            }
-
-            if self.wrap_lines {
-                let output = scroll_area.show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 4.0 * line_spacing;
-
-                    let mut bookmark_toggle: Option<(String, usize)> = None;
-                    for line in filtered_lines.iter() {
-                        let line_entry = line.entry.clone();
-                        let line_raw = line.entry.raw.clone();
-                        let line_num = line.line_num;
-                        let line_source = line.entry.source.clone();
-                        let is_bookmarked = self
-                            .bookmarks
-                            .get(&line_source)
-                            .map(|b| b.contains(&line_num))
-                            .unwrap_or(false);
-
-                        let row_response = ui.horizontal_wrapped(|ui| {
-                            // Bookmark toggle
-                            let bookmark_icon = if is_bookmarked { "★" } else { "☆" };
-                            let bookmark_color = if is_bookmarked {
-                                egui::Color32::from_rgb(255, 200, 50)
-                            } else {
-                                egui::Color32::from_rgb(100, 100, 100)
-                            };
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        egui::RichText::new(bookmark_icon)
-                                            .size(font_size)
-                                            .color(bookmark_color),
-                                    )
-                                    .frame(false),
-                                )
-                                .on_hover_text("Toggle bookmark")
-                                .clicked()
-                            {
-                                bookmark_toggle = Some((line_source.clone(), line_num));
-                            }
-
-                            ui.label(
-                                egui::RichText::new(format!("{:6} ", line.line_num))
-                                    .monospace()
-                                    .size(font_size)
-                                    .color(egui::Color32::from_rgb(100, 100, 100)),
-                            );
-
-                            if show_source && source_count > 1 {
-                                let source_color = egui::Color32::from_rgb(100, 150, 200);
-                                ui.label(
-                                    egui::RichText::new(format!("[{}] ", line.entry.source))
-                                        .monospace()
-                                        .size(font_size)
-                                        .color(source_color),
-                                );
-                            }
-
-                            if show_timestamps {
-                                if let Some(ts) = &line.entry.timestamp {
-                                    ui.label(
-                                        egui::RichText::new(format!(
-                                            "{} ",
-                                            ts.format("%H:%M:%S%.3f")
-                                        ))
-                                        .monospace()
-                                        .size(font_size)
-                                        .color(egui::Color32::from_rgb(120, 120, 120)),
-                                    );
-                                }
-                            }
-
-                            if let Some(level) = &line.entry.level {
-                                let level_color = log_level_color(
-                                    Some(level),
-                                    Some(&self.config.general.log_level_colors),
-                                );
-                                ui.label(
-                                    egui::RichText::new(format!("[{:5}] ", level.as_str()))
-                                        .monospace()
-                                        .size(font_size)
-                                        .color(level_color),
-                                );
-                            }
-
-                            let has_search_match = !search_lower.is_empty()
-                                && line.entry.message.to_lowercase().contains(&search_lower);
-
-                            let highlight =
-                                find_matching_highlight(&highlight_rules, &line.entry.raw);
-
-                            let (fg_color, bg_color, is_bold, is_italic) =
-                                if let Some(rule) = highlight {
-                                    (
-                                        rule.foreground,
-                                        Some(rule.background),
-                                        rule.bold,
-                                        rule.italic,
-                                    )
-                                } else {
-                                    (
-                                        log_level_color(
-                                            line.entry.level.as_ref(),
-                                            Some(&self.config.general.log_level_colors),
-                                        ),
-                                        None,
-                                        false,
-                                        false,
-                                    )
-                                };
-
-                            let mut text = egui::RichText::new(&line.entry.message)
-                                .monospace()
-                                .size(font_size)
-                                .color(fg_color);
-
-                            if is_bold {
-                                text = text.strong();
-                            }
-                            if is_italic {
-                                text = text.italics();
-                            }
-                            if let Some(bg) = bg_color {
-                                text = text.background_color(bg);
-                            }
-                            if has_search_match && bg_color.is_none() {
-                                text = text.background_color(egui::Color32::from_rgb(100, 100, 0));
-                            }
-
-                            ui.label(text);
-
-                            if !line.entry.fields.is_empty() {
-                                ui.label(
-                                    egui::RichText::new(" {...}")
-                                        .monospace()
-                                        .size(font_size * 0.9)
-                                        .color(egui::Color32::from_rgb(100, 100, 100)),
-                                )
-                                .on_hover_ui(|ui| {
-                                    ui.label("JSON Fields:");
-                                    for (key, value) in &line.entry.fields {
-                                        ui.horizontal(|ui| {
-                                            ui.label(
-                                                egui::RichText::new(format!("{}:", key))
-                                                    .color(egui::Color32::from_rgb(150, 200, 150)),
-                                            );
-                                            ui.label(format!("{}", value));
-                                        });
-                                    }
-                                });
-                            }
-                        });
-
-                        // Check if this is the bookmark target - scroll to it
-                        if bookmark_target_line == Some(line_num) {
-                            row_response.response.scroll_to_me(Some(egui::Align::TOP));
-                        }
-
-                        // Context menu for copying (use row_response directly, no separate interact)
-                        row_response.response.context_menu(|ui| {
-                            if ui.button("Copy Line").clicked() {
-                                ui.output_mut(|o| o.copied_text = line_entry.message.clone());
-                                ui.close_menu();
-                            }
-                            if ui.button("Copy with Timestamp").clicked() {
-                                let text = if let Some(ts) = &line_entry.timestamp {
-                                    format!(
-                                        "{} {}",
-                                        ts.format("%Y-%m-%d %H:%M:%S%.3f"),
-                                        line_entry.message
-                                    )
-                                } else {
-                                    line_entry.message.clone()
-                                };
-                                ui.output_mut(|o| o.copied_text = text);
-                                ui.close_menu();
-                            }
-                            if ui.button("Copy Raw").clicked() {
-                                ui.output_mut(|o| o.copied_text = line_raw.clone());
-                                ui.close_menu();
-                            }
-                        });
-
-                        // Handle bookmark toggle
-                        if let Some((source, ln)) = bookmark_toggle.take() {
-                            let source_bookmarks = self.bookmarks.entry(source).or_default();
-                            if source_bookmarks.contains(&ln) {
-                                source_bookmarks.remove(&ln);
-                            } else {
-                                source_bookmarks.insert(ln);
-                            }
-                        }
-                    }
-                });
-                // Track scroll offset for pixel-based Page Up/Down
-                self.current_scroll_offset = output.state.offset.y;
-                // Estimate current row (approximate since wrapped lines have variable height)
-                local_scroll_row = ((output.state.offset.y / row_height_with_spacing) as usize)
-                    .min(total_rows.saturating_sub(1));
-            } else {
-                let output = scroll_area.show_rows(ui, row_height, total_rows, |ui, row_range| {
-                    local_scroll_row = row_range.start;
-                    let mut bookmark_toggle: Option<(String, usize)> = None;
-
-                    for row in row_range {
-                        if let Some(line) = filtered_lines.get(row) {
-                            let line_entry = line.entry.clone();
-                            let line_raw = line.entry.raw.clone();
-                            let line_num = line.line_num;
-                            let line_source = line.entry.source.clone();
-                            let is_bookmarked = self
-                                .bookmarks
-                                .get(&line_source)
-                                .map(|b| b.contains(&line_num))
-                                .unwrap_or(false);
-                            let row_response = ui.horizontal(|ui| {
-                                // Bookmark toggle
-                                let bookmark_icon = if is_bookmarked { "★" } else { "☆" };
-                                let bookmark_color = if is_bookmarked {
-                                    egui::Color32::from_rgb(255, 200, 50)
-                                } else {
-                                    egui::Color32::from_rgb(100, 100, 100)
-                                };
-                                if ui
-                                    .add(
-                                        egui::Button::new(
-                                            egui::RichText::new(bookmark_icon)
-                                                .size(font_size)
-                                                .color(bookmark_color),
-                                        )
-                                        .frame(false),
-                                    )
-                                    .on_hover_text("Toggle bookmark")
-                                    .clicked()
-                                {
-                                    bookmark_toggle = Some((line_source.clone(), line_num));
-                                }
-
-                                ui.label(
-                                    egui::RichText::new(format!("{:6} ", line.line_num))
-                                        .monospace()
-                                        .size(font_size)
-                                        .color(egui::Color32::from_rgb(100, 100, 100)),
-                                );
-
-                                if show_source && source_count > 1 {
-                                    let source_color = egui::Color32::from_rgb(100, 150, 200);
-                                    ui.label(
-                                        egui::RichText::new(format!("[{}] ", line.entry.source))
-                                            .monospace()
-                                            .size(font_size)
-                                            .color(source_color),
-                                    );
-                                }
-
-                                if show_timestamps {
-                                    if let Some(ts) = &line.entry.timestamp {
-                                        ui.label(
-                                            egui::RichText::new(format!(
-                                                "{} ",
-                                                ts.format("%H:%M:%S%.3f")
-                                            ))
-                                            .monospace()
-                                            .size(font_size)
-                                            .color(egui::Color32::from_rgb(120, 120, 120)),
-                                        );
-                                    }
-                                }
-
-                                if let Some(level) = &line.entry.level {
-                                    let level_color = log_level_color(
-                                        Some(level),
-                                        Some(&self.config.general.log_level_colors),
-                                    );
-                                    ui.label(
-                                        egui::RichText::new(format!("[{:5}] ", level.as_str()))
-                                            .monospace()
-                                            .size(font_size)
-                                            .color(level_color),
-                                    );
-                                }
-
-                                let has_search_match = !search_lower.is_empty()
-                                    && line.entry.message.to_lowercase().contains(&search_lower);
-
-                                let display_text = &line.entry.message;
-                                let highlight =
-                                    find_matching_highlight(&highlight_rules, &line.entry.raw);
-
-                                if let Some(rule) = highlight {
-                                    let mut text = egui::RichText::new(display_text)
-                                        .monospace()
-                                        .size(font_size)
-                                        .color(rule.foreground)
-                                        .background_color(rule.background);
-
-                                    if rule.bold {
-                                        text = text.strong();
-                                    }
-                                    if rule.italic {
-                                        text = text.italics();
-                                    }
-
-                                    ui.label(text);
-                                } else if line.has_ansi {
-                                    for span in &line.spans {
-                                        let mut text = egui::RichText::new(&span.text)
-                                            .monospace()
-                                            .size(font_size)
-                                            .color(span.color);
-
-                                        if span.bold {
-                                            text = text.strong();
-                                        }
-
-                                        if has_search_match
-                                            && span.text.to_lowercase().contains(&search_lower)
-                                        {
-                                            text = text.background_color(egui::Color32::from_rgb(
-                                                100, 100, 0,
-                                            ));
-                                        }
-
-                                        ui.label(text);
-                                    }
-                                } else {
-                                    let color = log_level_color(
-                                        line.entry.level.as_ref(),
-                                        Some(&self.config.general.log_level_colors),
-                                    );
-                                    let mut text = egui::RichText::new(display_text)
-                                        .monospace()
-                                        .size(font_size)
-                                        .color(color);
-
-                                    if has_search_match {
-                                        text = text
-                                            .background_color(egui::Color32::from_rgb(100, 100, 0));
-                                    }
-
-                                    ui.label(text);
-                                }
-
-                                if !line.entry.fields.is_empty() {
-                                    ui.label(
-                                        egui::RichText::new(" {...}")
-                                            .monospace()
-                                            .size(font_size * 0.9)
-                                            .color(egui::Color32::from_rgb(100, 100, 100)),
-                                    )
-                                    .on_hover_ui(|ui| {
-                                        ui.label("JSON Fields:");
-                                        for (key, value) in &line.entry.fields {
-                                            ui.horizontal(|ui| {
-                                                ui.label(
-                                                    egui::RichText::new(format!("{}:", key)).color(
-                                                        egui::Color32::from_rgb(150, 200, 150),
-                                                    ),
-                                                );
-                                                ui.label(format!("{}", value));
-                                            });
-                                        }
-                                    });
-                                }
-                            });
-
-                            // Check if this is the bookmark target - scroll to it
-                            if bookmark_target_line == Some(line_num) {
-                                row_response.response.scroll_to_me(Some(egui::Align::TOP));
-                            }
-
-                            // Context menu for copying (use row_response directly, no separate interact)
-                            row_response.response.context_menu(|ui| {
-                                if ui.button("Copy Line").clicked() {
-                                    ui.output_mut(|o| o.copied_text = line_entry.message.clone());
-                                    ui.close_menu();
-                                }
-                                if ui.button("Copy with Timestamp").clicked() {
-                                    let text = if let Some(ts) = &line_entry.timestamp {
-                                        format!(
-                                            "{} {}",
-                                            ts.format("%Y-%m-%d %H:%M:%S%.3f"),
-                                            line_entry.message
-                                        )
-                                    } else {
-                                        line_entry.message.clone()
-                                    };
-                                    ui.output_mut(|o| o.copied_text = text);
-                                    ui.close_menu();
-                                }
-                                if ui.button("Copy Raw").clicked() {
-                                    ui.output_mut(|o| o.copied_text = line_raw.clone());
-                                    ui.close_menu();
-                                }
-                            });
-
-                            // Handle bookmark toggle
-                            if let Some((source, ln)) = bookmark_toggle.take() {
-                                let source_bookmarks = self.bookmarks.entry(source).or_default();
-                                if source_bookmarks.contains(&ln) {
-                                    source_bookmarks.remove(&ln);
-                                } else {
-                                    source_bookmarks.insert(ln);
-                                }
-                            }
-                        }
-                    }
-                });
-                // Track scroll offset for pixel-based Page Up/Down
-                self.current_scroll_offset = output.state.offset.y;
-            }
-
-            // Always sync current_scroll_row from scroll area state
-            self.current_scroll_row = local_scroll_row;
+            self.render_central_log_view(ui);
         });
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         self.persist_session();
 
-        let source_manager = self.source_manager.clone();
-        let runtime = self.runtime.clone();
-        let source_names: Vec<String> = self.source_infos.keys().cloned().collect();
-
-        runtime.block_on(async {
-            let mut sm = source_manager.lock().await;
-            for name in &source_names {
-                let _ = sm.stop_source(name).await;
-            }
-        });
+        // Best-effort stop; the process is exiting so the OS reclaims any
+        // remaining file handles / sockets if the task doesn't run in time.
+        let names: Vec<String> = self.source_infos.keys().cloned().collect();
+        let _ = self.source_cmd_tx.send(SourceCommand::StopAll { names });
 
         tracing::info!("Application exiting, session saved");
     }
