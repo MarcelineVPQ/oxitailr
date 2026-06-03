@@ -36,25 +36,32 @@ pub fn log_level_color(
     }
 }
 
-/// A display line with pre-parsed ANSI colors
+/// A display line. ANSI colors are parsed lazily at render time (only for the
+/// handful of visible lines that contain escape codes) rather than eagerly for
+/// every ingested line — most lines are never rendered before they scroll out
+/// of the ring buffer.
 #[derive(Clone)]
 pub struct DisplayLine {
     pub entry: crate::models::LogEntry,
-    pub spans: Vec<ColoredSpan>,
     pub has_ansi: bool,
     pub line_num: usize,
 }
 
 impl DisplayLine {
     pub fn from_entry(entry: crate::models::LogEntry, line_num: usize) -> Self {
+        // Cheap byte scan; full ANSI span parsing is deferred to render.
         let has_ansi = entry.raw.contains("\x1b[");
-        let spans = parse_ansi_line(&entry.raw);
         Self {
             entry,
-            spans,
             has_ansi,
             line_num,
         }
+    }
+
+    /// Parse ANSI color spans for this line on demand (used only when this line
+    /// is actually rendered and `has_ansi` is true).
+    pub fn ansi_spans(&self) -> Vec<ColoredSpan> {
+        parse_ansi_line(&self.entry.raw)
     }
 }
 
@@ -735,7 +742,7 @@ impl crate::TailLoggerApp {
 
                                 ui.label(text);
                             } else if line.has_ansi {
-                                for span in &line.spans {
+                                for span in &line.ansi_spans() {
                                     let mut text = egui::RichText::new(&span.text)
                                         .monospace()
                                         .size(font_size)
