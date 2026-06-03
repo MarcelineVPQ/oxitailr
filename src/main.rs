@@ -22,7 +22,7 @@ use egui::IconData;
 use filter::{FilterEngine, FilterRule};
 use glob::glob;
 use models::{LogEntry, LogLevel, SourceInfo, SourceStatus};
-use parser::{auto_detect_parser, Parser, PlainParser};
+use parser::{JsonParser, Parser, PlainParser};
 use regex::Regex;
 use source::{SourceCommand, SourceEvent, SourceManager};
 use state::{
@@ -138,7 +138,7 @@ fn load_or_default_config(path: Option<PathBuf>) -> AppConfig {
 }
 
 struct LogState {
-    lines: VecDeque<DisplayLine>,
+    lines: VecDeque<Arc<DisplayLine>>,
     max_lines: usize,
     total_lines_read: usize,
     /// Monotonically increasing on every mutation (add/clear/resize). Used as a
@@ -157,14 +157,15 @@ impl LogState {
         }
     }
 
-    fn add_entry(&mut self, entry: LogEntry) {
+    fn add_entry(&mut self, entry: LogEntry) -> Arc<DisplayLine> {
         self.total_lines_read += 1;
-        let display_line = DisplayLine::from_entry(entry, self.total_lines_read);
+        let display_line = Arc::new(DisplayLine::from_entry(entry, self.total_lines_read));
         if self.lines.len() >= self.max_lines {
             self.lines.pop_front();
         }
-        self.lines.push_back(display_line);
+        self.lines.push_back(Arc::clone(&display_line));
         self.version += 1;
+        display_line
     }
 
     /// Drop all buffered lines and reset the line counter (used on reload).
@@ -248,6 +249,7 @@ struct TailLoggerApp {
 
     // Parsers
     plain_parser: PlainParser,
+    json_parser: JsonParser,
     use_auto_parser: bool,
 
     // Filter state
@@ -264,7 +266,7 @@ struct TailLoggerApp {
     selected_preset: Option<usize>,
 
     // Cached filtered view, rebuilt only when the buffer or filter inputs change
-    filtered_cache: Vec<DisplayLine>,
+    filtered_cache: Vec<Arc<DisplayLine>>,
     filtered_cache_sig: Option<FilterSig>,
 
     // Per-row measured heights for wrap-mode virtualization (parallel to the
@@ -407,6 +409,7 @@ impl TailLoggerApp {
             runtime,
             selected_source: None,
             plain_parser: PlainParser::new(),
+            json_parser: JsonParser::new(),
             use_auto_parser: config.general.auto_parse_json,
             filter_engine: FilterEngine::new(),
             filter_text: String::new(),
@@ -1005,22 +1008,33 @@ impl TailLoggerApp {
             while let Ok(event) = rx.try_recv() {
                 match event {
                     SourceEvent::Line { source, line } => {
-                        let entry = if self.use_auto_parser {
-                            let parser = auto_detect_parser(&line);
-                            parser.parse(&source, &line)
+                        // Detect JSON inline rather than allocating a Box<dyn Parser> per line.
+                        let entry = if self.use_auto_parser
+                            && line.trim_start().starts_with('{')
+                            && line.trim_end().ends_with('}')
+                        {
+                            self.json_parser.parse(&source, &line)
                         } else {
                             self.plain_parser.parse(&source, &line)
                         };
 
-                        if let Ok(mut state) = self.log_state.lock() {
-                            state.add_entry(entry.clone());
-                        }
+                        let display = match self.log_state.lock() {
+                            Ok(mut state) => Some(state.add_entry(entry)),
+                            Err(_) => None,
+                        };
 
-                        // Trigger alert checking
-                        let dispatcher = self.alert_dispatcher.clone();
-                        self.runtime.spawn(async move {
-                            let _ = dispatcher.check_and_alert(&entry).await;
-                        });
+                        // Only do alert work when rules are configured, and hand
+                        // the task a cheap Arc clone instead of deep-cloning the
+                        // entry. Spawning a task per line was a major CPU cost.
+                        if !self.alert_rules.is_empty() {
+                            if let Some(display) = &display {
+                                let dispatcher = self.alert_dispatcher.clone();
+                                let line = Arc::clone(display);
+                                self.runtime.spawn(async move {
+                                    let _ = dispatcher.check_and_alert(&line.entry).await;
+                                });
+                            }
+                        }
 
                         self.new_lines_received = true;
                     }

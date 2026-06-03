@@ -3,6 +3,8 @@ use crate::models::{LogEntry, LogLevel};
 use chrono::Utc;
 use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock};
 
 /// Maximum size limit for regex patterns to prevent DoS
 const MAX_REGEX_PATTERN_LEN: usize = 1000;
@@ -26,6 +28,22 @@ fn safe_regex_compile(pattern: &str) -> Result<Regex, String> {
         .size_limit(MAX_REGEX_SIZE)
         .build()
         .map_err(|e| format!("Invalid regex: {}", e))
+}
+
+/// Compile a regex with memoization. `FilterRule::matches` runs once per log
+/// line, so recompiling the pattern each time was a large CPU cost when a regex
+/// rule was active. Patterns are few and user-defined, so an unbounded cache is
+/// fine. `Regex` is cheap to clone (it is internally reference-counted).
+fn cached_regex(pattern: &str) -> Option<Regex> {
+    static CACHE: OnceLock<Mutex<HashMap<String, Option<Regex>>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut map = cache.lock().unwrap();
+    if let Some(compiled) = map.get(pattern) {
+        return compiled.clone();
+    }
+    let compiled = safe_regex_compile(pattern).ok();
+    map.insert(pattern.to_string(), compiled.clone());
+    compiled
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -109,9 +127,9 @@ impl Filter for FilterRule {
                         || entry.message.to_lowercase().contains(&pattern_lower)
                 }
             }
-            FilterRule::Regex { pattern } => match safe_regex_compile(pattern) {
-                Ok(re) => re.is_match(&entry.raw) || re.is_match(&entry.message),
-                Err(_) => false,
+            FilterRule::Regex { pattern } => match cached_regex(pattern) {
+                Some(re) => re.is_match(&entry.raw) || re.is_match(&entry.message),
+                None => false,
             },
             FilterRule::Level { level, min } => {
                 if let Some(entry_level) = &entry.level {
@@ -130,9 +148,9 @@ impl Filter for FilterRule {
                         serde_json::Value::String(s) => s.clone(),
                         other => other.to_string(),
                     };
-                    match safe_regex_compile(pattern) {
-                        Ok(re) => re.is_match(&value_str),
-                        Err(_) => value_str.contains(pattern),
+                    match cached_regex(pattern) {
+                        Some(re) => re.is_match(&value_str),
+                        None => value_str.contains(pattern),
                     }
                 } else {
                     false
