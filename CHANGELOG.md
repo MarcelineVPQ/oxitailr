@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+- **Much lower CPU usage** - The window no longer repaints continuously (it now follows activity and goes idle when nothing is happening), and the system-theme check — which queried the OS on *every* frame (~8 ms each) — is cached and refreshed at most once every few seconds. This cuts idle CPU to near zero and dramatically reduces active CPU, most noticeably on Windows.
 
 ## [0.2.17] - 2026-06-03
 
