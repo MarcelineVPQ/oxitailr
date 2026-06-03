@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.2.19] - 2026-06-03
+
 ### Changed
 - **Lower CPU on busy logs** - The filtered view is now stored as reference-counted lines (`Arc`), so the per-frame rebuild during active tailing is a refcount bump instead of deep-copying the whole buffer. Benchmarked at ~4.7 ms/frame → ~0.1 ms/frame for a 10k-line buffer (≈28% of a core saved at 60fps). Also removed a per-line parser allocation, stopped spawning a task (and cloning the entry) per line when no alert rules are set, and memoized compiled filter/alert regexes.
 - **Lower memory + ingest cost** - ANSI color spans are now parsed lazily (only for the visible lines that contain escape codes) instead of eagerly for every ingested line, removing a per-line allocation and shrinking the in-memory footprint of the line buffer.
@@ -271,7 +275,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.18...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.19...HEAD
+[0.2.19]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.17...v0.2.18
 [0.2.17]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.16...v0.2.17
 [0.2.16]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.15...v0.2.16

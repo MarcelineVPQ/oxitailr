@@ -49,13 +49,13 @@ Download the latest AppImage from the [Releases](https://github.com/MarcelineVPQ
 
 ```bash
 # Download (replace version as needed)
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.18/Oxitailr-0.2.18-x86_64.AppImage
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.19/Oxitailr-0.2.19-x86_64.AppImage
 
 # Make executable
-chmod +x Oxitailr-0.2.18-x86_64.AppImage
+chmod +x Oxitailr-0.2.19-x86_64.AppImage
 
 # Run
-./Oxitailr-0.2.18-x86_64.AppImage
+./Oxitailr-0.2.19-x86_64.AppImage
 ```
 
 No dependencies required - works on most Linux distributions.
@@ -210,7 +210,7 @@ ls -la target/release/oxitailr
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.2.18**.
+See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.2.19**.
 
 ## License
 
