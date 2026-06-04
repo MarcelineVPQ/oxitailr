@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.1] - 2026-06-04
+
 ### Added
 - **Line cursor** in the log view (`j`/`k`/`Ctrl+d`/`u`/`PgUp`/`Dn`/`g`); `Space`/`G` follow. Search is cursor-based (`n`/`N` jump to matches).
 - **Bookmarks** — `b` toggles on the cursor line, `]`/`[` jump between them, a `★` gutter marker, persisted to `session.json` and restored on launch.
@@ -301,7 +305,8 @@ SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight r
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.1...HEAD
+[0.3.1]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.20...v0.3.0
 [0.2.20]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.18...v0.2.19
