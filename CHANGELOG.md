@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Line cursor** in the log view (`j`/`k`/`Ctrl+d`/`u`/`PgUp`/`Dn`/`g`); `Space`/`G` follow. Search is cursor-based (`n`/`N` jump to matches).
+- **Bookmarks** — `b` toggles on the cursor line, `]`/`[` jump between them, a `★` gutter marker, persisted to `session.json` and restored on launch.
+- **Copy line** — `y` copies the selected line to the clipboard via OSC 52 (works over SSH).
+- **Alerts** — a status-bar `⚠ N` indicator and an `a` popup listing recent alerts.
+- **Add SSH source** — `o` opens a form (name/host/user/path/port/key); the SSH backend was already present.
+- **Settings modal** — `S` toggles timestamp display and JSON auto-parsing.
 
 ## [0.3.0] - 2026-06-03
 

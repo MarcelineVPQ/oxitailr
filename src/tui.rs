@@ -6,6 +6,7 @@
 
 use crate::app::{AppCore, CoreChannels, DisplayLine};
 use crate::models::LogLevel;
+use crate::state::{load_session, save_session, WindowState};
 use anyhow::Result;
 use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::terminal::{
@@ -18,7 +19,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{Frame, Terminal};
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Stdout};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -29,19 +32,52 @@ enum Mode {
     Search,
 }
 
+/// Fields of the "add SSH source" form, in tab order.
+const SSH_LABELS: [&str; 6] = [
+    "Name",
+    "Host",
+    "User",
+    "Remote path",
+    "Port",
+    "Key path (optional)",
+];
+
+struct SshForm {
+    fields: [String; 6],
+    focus: usize,
+}
+
+impl SshForm {
+    fn new() -> Self {
+        let mut fields: [String; 6] = std::array::from_fn(|_| String::new());
+        fields[4] = "22".to_string(); // default port
+        Self { fields, focus: 0 }
+    }
+}
+
+/// Toggleable settings shown in the settings modal.
+const SETTINGS_ITEMS: [&str; 2] = ["Show timestamps", "Auto-parse JSON"];
+
 struct Ui {
     /// Index into the sorted source list (tab selection); 0 if none.
     tab: usize,
     /// Index of the first visible line within the filtered view.
     scroll: usize,
-    /// Stick to the bottom as new lines arrive.
+    /// Index of the selected line within the filtered view (the cursor). Only
+    /// meaningful when not following; it anchors bookmarks and copy.
+    cursor: usize,
+    /// Stick to the bottom as new lines arrive (no cursor highlight while on).
     follow: bool,
     mode: Mode,
     search: String,
-    /// Indices (within the filtered view) of search matches.
-    matches: Vec<usize>,
-    current_match: Option<usize>,
     show_help: bool,
+    show_alerts: bool,
+    /// Active SSH add form, if open.
+    ssh_form: Option<SshForm>,
+    /// Settings modal open + selected row.
+    settings: Option<usize>,
+    /// Per-source bookmarks: source name -> set of line numbers.
+    bookmarks: HashMap<String, HashSet<usize>>,
     /// Rows available for log lines on the last draw (for paging).
     viewport: usize,
 }
@@ -51,12 +87,15 @@ impl Default for Ui {
         Self {
             tab: 0,
             scroll: 0,
+            cursor: 0,
             follow: true,
             mode: Mode::Normal,
             search: String::new(),
-            matches: Vec::new(),
-            current_match: None,
             show_help: false,
+            show_alerts: false,
+            ssh_form: None,
+            settings: None,
+            bookmarks: HashMap::new(),
             viewport: 20,
         }
     }
@@ -79,8 +118,25 @@ pub async fn run(mut core: AppCore, mut channels: CoreChannels) -> Result<()> {
     result
 }
 
+fn session_path() -> std::path::PathBuf {
+    dirs::config_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("oxitailr")
+        .join("session.json")
+}
+
 async fn run_loop(terminal: &mut Term, core: &mut AppCore, ch: &mut CoreChannels) -> Result<()> {
     let mut ui = Ui::default();
+
+    // Restore saved bookmarks.
+    if let Some(session) = load_session(&session_path()) {
+        ui.bookmarks = session
+            .bookmarks
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().collect()))
+            .collect();
+    }
+
     let mut events = EventStream::new();
     // Coalesce bursts of incoming lines into at most ~20 redraws/sec — plenty
     // smooth for a log, and a third less render work than 30fps under load.
@@ -134,38 +190,130 @@ async fn run_loop(terminal: &mut Term, core: &mut AppCore, ch: &mut CoreChannels
             }
         }
     }
+
+    // Persist bookmarks (and the open files) on the way out.
+    let bookmarks: std::collections::HashMap<String, Vec<usize>> = ui
+        .bookmarks
+        .iter()
+        .filter(|(_, set)| !set.is_empty())
+        .map(|(k, set)| {
+            let mut v: Vec<usize> = set.iter().copied().collect();
+            v.sort_unstable();
+            (k.clone(), v)
+        })
+        .collect();
+    let open_files: Vec<String> = sorted_sources(core);
+    save_session(
+        &session_path(),
+        open_files,
+        Vec::new(),
+        WindowState::default(),
+        bookmarks,
+    );
     Ok(())
 }
 
-/// Compute the total number of lines passing the filter and just the visible
-/// window (at most `height` lines), without allocating a Vec over the whole
-/// buffer each frame. Returns `(total_passing, window)`.
-fn compute_view<'a>(
+/// Iterator over the lines passing the level/filter rules and the selected tab.
+fn passing<'a>(
     core: &'a AppCore,
-    selected: Option<&str>,
-    follow: bool,
-    scroll: &mut usize,
-    height: usize,
-) -> (usize, Vec<&'a Arc<DisplayLine>>) {
-    let lines = &core.log_state.lines;
-    let pass = |line: &&Arc<DisplayLine>| -> bool {
+    selected: Option<&'a str>,
+) -> impl Iterator<Item = &'a Arc<DisplayLine>> {
+    core.log_state.lines.iter().filter(move |line| {
         if let Some(sel) = selected {
             if line.entry.source != sel {
                 return false;
             }
         }
         core.passes_filter(line)
-    };
-    let total = lines.iter().filter(pass).count();
-    let max_first = total.saturating_sub(height);
-    let first = if follow {
-        max_first
+    })
+}
+
+fn count_passing(core: &AppCore, selected: Option<&str>) -> usize {
+    passing(core, selected).count()
+}
+
+/// The visible window: passing lines `[first, first+height)`.
+fn window_slice<'a>(
+    core: &'a AppCore,
+    selected: Option<&'a str>,
+    first: usize,
+    height: usize,
+) -> Vec<&'a Arc<DisplayLine>> {
+    passing(core, selected).skip(first).take(height).collect()
+}
+
+/// The filtered-view index of the nth match of `needle` searching from `from`
+/// in `dir` (+1 forward / -1 back). Used for `n`/`N`.
+fn find_match(
+    core: &AppCore,
+    selected: Option<&str>,
+    needle: &str,
+    from: usize,
+    forward: bool,
+) -> Option<usize> {
+    if needle.is_empty() {
+        return None;
+    }
+    let needle = needle.to_lowercase();
+    let hits: Vec<usize> = passing(core, selected)
+        .enumerate()
+        .filter(|(_, l)| l.entry.message.to_lowercase().contains(&needle))
+        .map(|(i, _)| i)
+        .collect();
+    if hits.is_empty() {
+        return None;
+    }
+    if forward {
+        hits.iter().find(|&&i| i > from).or(hits.first()).copied()
     } else {
-        (*scroll).min(max_first)
-    };
-    *scroll = first;
-    let window = lines.iter().filter(pass).skip(first).take(height).collect();
-    (total, window)
+        hits.iter()
+            .rev()
+            .find(|&&i| i < from)
+            .or(hits.last())
+            .copied()
+    }
+}
+
+/// The line under the cursor (its filtered-view index `ui.cursor`).
+fn cursor_line<'a>(
+    core: &'a AppCore,
+    ui: &Ui,
+    selected: Option<&'a str>,
+) -> Option<&'a Arc<DisplayLine>> {
+    passing(core, selected).nth(ui.cursor)
+}
+
+fn is_bookmarked(bookmarks: &HashMap<String, HashSet<usize>>, line: &DisplayLine) -> bool {
+    bookmarks
+        .get(&line.entry.source)
+        .is_some_and(|s| s.contains(&line.line_num))
+}
+
+/// Next/previous bookmarked line (filtered-view index) relative to `from`.
+fn find_bookmark(
+    core: &AppCore,
+    selected: Option<&str>,
+    bookmarks: &HashMap<String, HashSet<usize>>,
+    from: usize,
+    forward: bool,
+) -> Option<usize> {
+    let hits: Vec<usize> = passing(core, selected)
+        .enumerate()
+        .filter(|(_, l)| is_bookmarked(bookmarks, l))
+        .map(|(i, _)| i)
+        .collect();
+    if hits.is_empty() {
+        return None;
+    }
+    if forward {
+        hits.iter().find(|&&i| i > from).or(hits.first()).copied()
+    } else {
+        hits.iter()
+            .rev()
+            .find(|&&i| i < from)
+            .or(hits.last())
+            .copied()
+    }
 }
 
 fn sorted_sources(core: &AppCore) -> Vec<String> {
@@ -203,17 +351,52 @@ fn draw(f: &mut Frame, core: &AppCore, ui: &mut Ui) {
         .filter(|_| sources.len() > 1);
 
     let log_area = chunks[1];
-    let height = log_area.height as usize;
+    let height = (log_area.height as usize).max(1);
     ui.viewport = height;
-    let (total, window) = compute_view(core, selected, ui.follow, &mut ui.scroll, height);
+
+    let total = count_passing(core, selected);
+    let max_first = total.saturating_sub(height);
+    if ui.follow {
+        ui.cursor = total.saturating_sub(1);
+        ui.scroll = max_first;
+    } else {
+        // Keep the cursor on screen.
+        ui.cursor = ui.cursor.min(total.saturating_sub(1));
+        if ui.cursor < ui.scroll {
+            ui.scroll = ui.cursor;
+        } else if ui.cursor >= ui.scroll + height {
+            ui.scroll = ui.cursor + 1 - height;
+        }
+        ui.scroll = ui.scroll.min(max_first);
+    }
+    let window = window_slice(core, selected, ui.scroll, height);
+    let cursor_row = (!ui.follow && total > 0).then(|| ui.cursor - ui.scroll);
 
     let search_lower = ui.search.to_lowercase();
     draw_header(f, chunks[0], core, ui, &sources);
-    draw_log(f, log_area, core, &window, sources.len() > 1, &search_lower);
+    draw_log(
+        f,
+        log_area,
+        core,
+        &window,
+        sources.len() > 1,
+        &search_lower,
+        cursor_row,
+        &ui.bookmarks,
+    );
     draw_status(f, chunks[2], core, ui, total);
 
     if ui.show_help {
         draw_help(f, f.area());
+    }
+    if ui.show_alerts {
+        draw_alerts(f, f.area(), core);
+    }
+    if let Some(sel) = ui.settings {
+        draw_settings(f, f.area(), core, sel);
+    }
+    if let Some(form) = &ui.ssh_form {
+        draw_ssh_form(f, f.area(), form);
     }
 }
 
@@ -241,6 +424,7 @@ fn draw_header(f: &mut Frame, area: Rect, _core: &AppCore, ui: &Ui, sources: &[S
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_log(
     f: &mut Frame,
     area: Rect,
@@ -248,10 +432,18 @@ fn draw_log(
     window: &[&Arc<DisplayLine>],
     show_source: bool,
     search_lower: &str,
+    cursor_row: Option<usize>,
+    bookmarks: &HashMap<String, HashSet<usize>>,
 ) {
     let mut out: Vec<Line> = Vec::with_capacity(window.len());
-    for line in window {
-        out.push(render_line(line, show_source, core, search_lower));
+    for (i, line) in window.iter().enumerate() {
+        let bookmarked = is_bookmarked(bookmarks, line);
+        let mut rendered = render_line(line, show_source, core, search_lower, bookmarked);
+        if Some(i) == cursor_row {
+            // Row highlight: a base background the per-span fg colors show over.
+            rendered = rendered.style(Style::default().bg(Color::Rgb(45, 45, 70)));
+        }
+        out.push(rendered);
     }
     f.render_widget(Paragraph::new(out), area);
 }
@@ -261,8 +453,14 @@ fn render_line<'a>(
     show_source: bool,
     core: &AppCore,
     search_lower: &str,
+    bookmarked: bool,
 ) -> Line<'a> {
     let mut spans: Vec<Span> = Vec::new();
+    spans.push(if bookmarked {
+        Span::styled("★", Style::default().fg(Color::Yellow))
+    } else {
+        Span::raw(" ")
+    });
     spans.push(Span::styled(
         format!("{:>6} ", line.line_num),
         Style::default().fg(Color::DarkGray),
@@ -433,13 +631,11 @@ fn draw_status(f: &mut Frame, area: Rect, core: &AppCore, ui: &Ui, shown: usize)
     }
 
     let mb = core.total_bytes() as f64 / (1024.0 * 1024.0);
-    let follow = if ui.follow { "FOLLOW" } else { "      " };
+    let follow = if ui.follow { "FOLLOW" } else { " PAUSE" };
     let search = if ui.search.is_empty() {
         String::new()
     } else {
-        let n = ui.matches.len();
-        let cur = ui.current_match.map(|m| m + 1).unwrap_or(0);
-        format!(" search:'{}' {}/{}", ui.search, cur, n)
+        format!(" /{}  (n/N)", ui.search)
     };
 
     let mut spans = vec![
@@ -457,6 +653,12 @@ fn draw_status(f: &mut Frame, area: Rect, core: &AppCore, ui: &Ui, shown: usize)
     if !search.is_empty() {
         spans.push(Span::styled(search, Style::default().fg(Color::Yellow)));
     }
+    if !core.pending_alerts.is_empty() {
+        spans.push(Span::styled(
+            format!("  ⚠ {} (a)", core.pending_alerts.len()),
+            Style::default().fg(Color::Black).bg(Color::Yellow),
+        ));
+    }
     spans.push(Span::styled(
         "   ?=help q=quit",
         Style::default().fg(Color::DarkGray),
@@ -464,39 +666,214 @@ fn draw_status(f: &mut Frame, area: Rect, core: &AppCore, ui: &Ui, shown: usize)
     f.render_widget(Paragraph::new(Line::from(spans)), area);
 }
 
-fn draw_help(f: &mut Frame, area: Rect) {
-    let w = 56u16.min(area.width.saturating_sub(2));
-    let h = 18u16.min(area.height.saturating_sub(2));
-    let rect = Rect {
+fn centered(area: Rect, w: u16, h: u16) -> Rect {
+    let w = w.min(area.width.saturating_sub(2));
+    let h = h.min(area.height.saturating_sub(2));
+    Rect {
         x: (area.width.saturating_sub(w)) / 2,
         y: (area.height.saturating_sub(h)) / 2,
         width: w,
         height: h,
-    };
+    }
+}
+
+fn draw_help(f: &mut Frame, area: Rect) {
+    let rect = centered(area, 58, 20);
     let text = vec![
-        Line::from("Oxitailr — keys"),
-        Line::from(""),
-        Line::from("  j/k  ↓/↑      scroll line"),
-        Line::from("  Ctrl+d/u      half page"),
-        Line::from("  PgDn/PgUp     page"),
-        Line::from("  g / G         top / bottom (G = follow)"),
-        Line::from("  Space         toggle follow"),
-        Line::from("  Tab / Shift+Tab   switch source"),
-        Line::from("  1..6          toggle level T D I W E F"),
-        Line::from("  f             filter (regex/substring)"),
-        Line::from("  /             search    n/N next/prev"),
-        Line::from("  r             reload     c  clear"),
-        Line::from("  ? quit help   q / Esc  quit"),
+        Line::from("  j/k  ↓/↑       move cursor"),
+        Line::from("  Ctrl+d/u       half page     PgDn/PgUp  page"),
+        Line::from("  g / G          top / bottom  (G = follow)"),
+        Line::from("  Space          toggle follow (pause/resume)"),
+        Line::from("  Tab / S-Tab    switch source"),
+        Line::from("  1..6           toggle level  T D I W E F"),
+        Line::from("  f              filter (regex/substring)"),
+        Line::from("  /  n  N        search, next / prev match"),
+        Line::from("  b  ]  [        bookmark, next / prev bookmark"),
+        Line::from("  y              copy line to clipboard"),
+        Line::from("  o / S          add SSH source / settings"),
+        Line::from("  a              alerts        r reload   c clear"),
+        Line::from("  ?              help          q / Esc  quit"),
     ];
     f.render_widget(ratatui::widgets::Clear, rect);
     f.render_widget(
-        Paragraph::new(text).block(Block::default().borders(Borders::ALL).title(" Help ")),
+        Paragraph::new(text).block(Block::default().borders(Borders::ALL).title(" Keys ")),
         rect,
     );
 }
 
+fn draw_alerts(f: &mut Frame, area: Rect, core: &AppCore) {
+    let rect = centered(area, 80, 16);
+    let mut lines: Vec<Line> = Vec::new();
+    if core.pending_alerts.is_empty() {
+        lines.push(Line::from("  (no alerts)"));
+    } else {
+        for ev in core
+            .pending_alerts
+            .iter()
+            .rev()
+            .take(rect.height as usize - 2)
+        {
+            let msg: String = ev.entry.message.chars().take(60).collect();
+            lines.push(Line::from(vec![
+                Span::styled(
+                    format!(" {} ", ev.rule_name),
+                    Style::default().fg(Color::Black).bg(Color::Yellow),
+                ),
+                Span::raw(" "),
+                Span::raw(msg),
+            ]));
+        }
+    }
+    f.render_widget(ratatui::widgets::Clear, rect);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Alerts (any key to close) "),
+        ),
+        rect,
+    );
+}
+
+fn draw_settings(f: &mut Frame, area: Rect, core: &AppCore, sel: usize) {
+    let rect = centered(area, 46, 7);
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, item) in SETTINGS_ITEMS.iter().enumerate() {
+        let on = match i {
+            0 => core.config.general.show_timestamps,
+            1 => core.config.general.auto_parse_json,
+            _ => false,
+        };
+        let style = if i == sel {
+            Style::default().fg(Color::Black).bg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(
+            format!("  [{}] {} ", if on { 'x' } else { ' ' }, item),
+            style,
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  ↑/↓ move · Space toggle · Esc close",
+        Style::default().fg(Color::DarkGray),
+    )));
+    f.render_widget(ratatui::widgets::Clear, rect);
+    f.render_widget(
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" Settings ")),
+        rect,
+    );
+}
+
+fn draw_ssh_form(f: &mut Frame, area: Rect, form: &SshForm) {
+    let rect = centered(area, 62, 12);
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, label) in SSH_LABELS.iter().enumerate() {
+        let focused = i == form.focus;
+        let label_style = if focused {
+            Style::default().fg(Color::Black).bg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        let mut spans = vec![
+            Span::styled(format!(" {:>19}: ", label), label_style),
+            Span::raw(form.fields[i].clone()),
+        ];
+        if focused {
+            spans.push(Span::styled(
+                "_",
+                Style::default().add_modifier(Modifier::SLOW_BLINK),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Tab/↑↓ move · Enter connect · Esc cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+    f.render_widget(ratatui::widgets::Clear, rect);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Add SSH source "),
+        ),
+        rect,
+    );
+}
+
+fn handle_ssh_form(code: KeyCode, core: &mut AppCore, ui: &mut Ui) {
+    let n = SSH_LABELS.len();
+    let mut close = false;
+    let mut submit = false;
+    if let Some(form) = ui.ssh_form.as_mut() {
+        match code {
+            KeyCode::Esc => close = true,
+            KeyCode::Enter => submit = true,
+            KeyCode::Tab | KeyCode::Down => form.focus = (form.focus + 1) % n,
+            KeyCode::BackTab | KeyCode::Up => form.focus = (form.focus + n - 1) % n,
+            KeyCode::Backspace => {
+                form.fields[form.focus].pop();
+            }
+            KeyCode::Char(c) => form.fields[form.focus].push(c),
+            _ => {}
+        }
+    }
+    if submit {
+        if let Some(form) = ui.ssh_form.take() {
+            let f = form.fields;
+            let host = f[1].trim().to_string();
+            if !host.is_empty() {
+                let name = if f[0].trim().is_empty() {
+                    host.clone()
+                } else {
+                    f[0].trim().to_string()
+                };
+                let port = f[4].trim().parse::<u16>().ok();
+                let key = f[5].trim();
+                let key_path = (!key.is_empty()).then(|| PathBuf::from(key));
+                core.add_ssh_source(
+                    name,
+                    host,
+                    f[2].trim().to_string(),
+                    f[3].trim().to_string(),
+                    port,
+                    key_path,
+                    None,
+                );
+            }
+        }
+    } else if close {
+        ui.ssh_form = None;
+    }
+}
+
 /// Handle a key. Returns true if the app should quit.
 fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui) -> bool {
+    // Modal forms capture all input.
+    if ui.ssh_form.is_some() {
+        handle_ssh_form(code, core, ui);
+        return false;
+    }
+    if let Some(sel) = ui.settings {
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('S') => ui.settings = None,
+            KeyCode::Up | KeyCode::Char('k') => ui.settings = Some(sel.saturating_sub(1)),
+            KeyCode::Down | KeyCode::Char('j') => {
+                ui.settings = Some((sel + 1).min(SETTINGS_ITEMS.len() - 1))
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => match sel {
+                0 => core.config.general.show_timestamps = !core.config.general.show_timestamps,
+                1 => core.config.general.auto_parse_json = !core.config.general.auto_parse_json,
+                _ => {}
+            },
+            _ => {}
+        }
+        return false;
+    }
+
     match ui.mode {
         Mode::Filter => {
             match code {
@@ -533,8 +910,11 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
     }
 
     if ui.show_help {
-        // Any key closes help.
-        ui.show_help = false;
+        ui.show_help = false; // any key closes help
+        return false;
+    }
+    if ui.show_alerts && code != KeyCode::Char('a') {
+        ui.show_alerts = false; // any key (other than the toggle) closes alerts
         return false;
     }
 
@@ -552,21 +932,61 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
             ui.scroll = 0;
         }
         KeyCode::Char(' ') => ui.follow = !ui.follow,
-        KeyCode::Char('j') | KeyCode::Down => scroll_by(ui, 1),
-        KeyCode::Char('k') | KeyCode::Up => scroll_by(ui, -1),
+        KeyCode::Char('j') | KeyCode::Down => cursor_move(ui, 1),
+        KeyCode::Char('k') | KeyCode::Up => cursor_move(ui, -1),
         KeyCode::Char('d') if mods.contains(KeyModifiers::CONTROL) => {
-            scroll_by(ui, (ui.viewport / 2) as isize)
+            cursor_move(ui, (ui.viewport / 2) as isize)
         }
         KeyCode::Char('u') if mods.contains(KeyModifiers::CONTROL) => {
-            scroll_by(ui, -((ui.viewport / 2) as isize))
+            cursor_move(ui, -((ui.viewport / 2) as isize))
         }
-        KeyCode::PageDown => scroll_by(ui, ui.viewport as isize),
-        KeyCode::PageUp => scroll_by(ui, -(ui.viewport as isize)),
+        KeyCode::PageDown => cursor_move(ui, ui.viewport as isize),
+        KeyCode::PageUp => cursor_move(ui, -(ui.viewport as isize)),
         KeyCode::Char('g') | KeyCode::Home => {
             ui.follow = false;
+            ui.cursor = 0;
             ui.scroll = 0;
         }
         KeyCode::Char('G') | KeyCode::End => ui.follow = true,
+        KeyCode::Char('n') | KeyCode::Char('N') => {
+            let selected = current_source(core, ui);
+            let forward = matches!(code, KeyCode::Char('n'));
+            if let Some(idx) = find_match(core, selected.as_deref(), &ui.search, ui.cursor, forward)
+            {
+                ui.follow = false;
+                ui.cursor = idx;
+            }
+        }
+        KeyCode::Char('b') => {
+            let selected = current_source(core, ui);
+            if let Some((source, line_num)) = cursor_line(core, ui, selected.as_deref())
+                .map(|l| (l.entry.source.clone(), l.line_num))
+            {
+                let set = ui.bookmarks.entry(source).or_default();
+                if !set.remove(&line_num) {
+                    set.insert(line_num);
+                }
+            }
+        }
+        KeyCode::Char(']') | KeyCode::Char('[') => {
+            let selected = current_source(core, ui);
+            let forward = matches!(code, KeyCode::Char(']'));
+            if let Some(idx) =
+                find_bookmark(core, selected.as_deref(), &ui.bookmarks, ui.cursor, forward)
+            {
+                ui.follow = false;
+                ui.cursor = idx;
+            }
+        }
+        KeyCode::Char('y') => {
+            let selected = current_source(core, ui);
+            if let Some(line) = cursor_line(core, ui, selected.as_deref()) {
+                copy_to_clipboard(&line.entry.raw);
+            }
+        }
+        KeyCode::Char('a') => ui.show_alerts = !ui.show_alerts,
+        KeyCode::Char('o') => ui.ssh_form = Some(SshForm::new()),
+        KeyCode::Char('S') => ui.settings = Some(0),
         KeyCode::Tab => {
             let n = core.source_infos.len().max(1);
             ui.tab = (ui.tab + 1) % n;
@@ -584,8 +1004,29 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
     false
 }
 
-fn scroll_by(ui: &mut Ui, delta: isize) {
+fn cursor_move(ui: &mut Ui, delta: isize) {
     ui.follow = false;
-    let cur = ui.scroll as isize;
-    ui.scroll = (cur + delta).max(0) as usize;
+    ui.cursor = (ui.cursor as isize + delta).max(0) as usize; // clamped to total in draw
+}
+
+/// Copy text to the system clipboard via the OSC 52 terminal escape, which
+/// works locally and over SSH (no external clipboard dependency).
+fn copy_to_clipboard(text: &str) {
+    use base64::Engine;
+    use std::io::Write;
+    let b64 = base64::engine::general_purpose::STANDARD.encode(text);
+    let seq = format!("\x1b]52;c;{}\x07", b64);
+    let mut out = io::stdout();
+    let _ = out.write_all(seq.as_bytes());
+    let _ = out.flush();
+}
+
+/// The source name for the current tab, if more than one source is open.
+fn current_source(core: &AppCore, ui: &Ui) -> Option<String> {
+    let sources = sorted_sources(core);
+    if sources.len() > 1 {
+        sources.get(ui.tab).cloned()
+    } else {
+        None
+    }
 }
