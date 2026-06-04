@@ -2,7 +2,12 @@
 
 **ox·i·tail·r** | \ ˌäk-sē-ˈtā-lər \ | *OK-see-TAY-ler*
 
-A modern, feature-rich log viewer with GUI interface built in Rust.
+A fast, low-resource **terminal** log viewer / live tailer built in Rust.
+
+> **v0.3.0:** the frontend was rewritten from a GUI (egui) to a terminal UI (Ratatui).
+> Idle CPU/memory dropped from ~50% / ~500 MB to ~1.6% / ~10 MB. Run it from a terminal:
+> `oxitailr /var/log/syslog`. Some features (SSH, bookmarks, alerts UI, settings) are being
+> ported in follow-up releases — see [CHANGELOG.md](CHANGELOG.md).
 
 ![Rust](https://img.shields.io/badge/rust-1.70%2B-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue)
@@ -49,13 +54,13 @@ Download the latest AppImage from the [Releases](https://github.com/MarcelineVPQ
 
 ```bash
 # Download (replace version as needed)
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.2.20/Oxitailr-0.2.20-x86_64.AppImage
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.3.0/Oxitailr-0.3.0-x86_64.AppImage
 
 # Make executable
-chmod +x Oxitailr-0.2.20-x86_64.AppImage
+chmod +x Oxitailr-0.3.0-x86_64.AppImage
 
 # Run
-./Oxitailr-0.2.20-x86_64.AppImage
+./Oxitailr-0.3.0-x86_64.AppImage
 ```
 
 No dependencies required - works on most Linux distributions.
@@ -78,15 +83,8 @@ cargo build --release
 
 ### Build Dependencies
 
-On Linux, you may need to install some system dependencies to build from source:
-
-```bash
-# Ubuntu/Debian
-sudo apt install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libssl-dev libsecret-1-dev
-
-# Fedora
-sudo dnf install libxcb-devel libxkbcommon-devel openssl-devel libsecret-devel
-```
+No special system libraries are required — the terminal UI and TLS (rustls) are
+pure Rust. A standard Rust toolchain (1.70+) is all you need.
 
 ## Usage
 
@@ -103,19 +101,10 @@ oxitailr --config ~/.config/oxitailr/config.toml /var/log/app.log
 oxitailr --max-lines 50000 /var/log/large.log
 ```
 
-### GUI
+### In the terminal UI
 
-Launch without arguments to use the graphical interface:
-
-```bash
-oxitailr
-```
-
-From the GUI you can:
-- **Open local files** - Click "+ Local File" or use the menu
-- **Add SSH sources** - Click "+ SSH" to connect to remote servers
-- **Manage sources** - Use the source panel to connect, edit, or remove sources
-- **Configure settings** - Access via the menu (gear icon)
+Oxitailr opens a full-screen terminal interface. Pass one or more files (globs
+are expanded). Press `?` for in-app help, `q` to quit.
 
 ## Configuration
 
@@ -173,30 +162,18 @@ Oxitailr stores its data in `~/.config/oxitailr/`:
 
 | Key | Action |
 |-----|--------|
-| `Ctrl+F` | Focus filter field |
-| `Ctrl+G` | Focus search field |
-| `Ctrl+L` | Clear log view |
-| `Ctrl+O` | Open local file |
-| `F3` | Jump to next search match |
-| `Shift+F3` | Jump to previous search match |
-| `Page Up/Down` | Scroll by page |
-| `Home` | Jump to beginning |
-| `End` | Jump to end (enables auto-scroll) |
-| `Mouse wheel` | Scroll through logs |
-
-### Vim Mode (enable in Settings)
-
-| Key | Action |
-|-----|--------|
-| `j` / `k` | Scroll down/up one line |
-| `G` | Jump to end (enable auto-scroll) |
-| `gg` | Jump to beginning |
-| `Ctrl+d` / `Ctrl+u` | Half-page down/up |
-| `Ctrl+f` / `Ctrl+b` | Full-page down/up |
-| `/` | Focus search field |
-| `n` / `N` | Next/previous search match |
-
-**Tip:** Access the in-app Help dialog from the hamburger menu (☰) for more details.
+| `j` / `k`, `↓` / `↑` | Scroll one line |
+| `Ctrl+d` / `Ctrl+u` | Half page down/up |
+| `PgDn` / `PgUp` | Page down/up |
+| `g` / `G` | Jump to top / bottom (`G` follows new lines) |
+| `Space` | Toggle follow (auto-scroll) |
+| `Tab` / `Shift+Tab` | Switch source |
+| `1`–`6` | Toggle level visibility (Trace…Fatal) |
+| `f` | Filter (regex / substring) |
+| `/`, then `n` / `N` | Search, next / previous match |
+| `r` / `c` | Reload / clear |
+| `?` | Help |
+| `q` / `Esc` | Quit |
 
 ## Building for Distribution
 
@@ -210,7 +187,7 @@ ls -la target/release/oxitailr
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.2.20**.
+See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.3.0**.
 
 ## License
 
@@ -223,7 +200,6 @@ Contributions are welcome! Please feel free to submit issues and pull requests.
 ## Acknowledgments
 
 Built with:
-- [egui](https://github.com/emilk/egui) - Immediate mode GUI
+- [ratatui](https://github.com/ratatui/ratatui) + [crossterm](https://github.com/crossterm-rs/crossterm) - Terminal UI
 - [tokio](https://tokio.rs/) - Async runtime
 - [russh](https://github.com/warp-tech/russh) - SSH client
-- [notify](https://github.com/notify-rs/notify) - File system notifications

@@ -1,8 +1,8 @@
 [package]
 name = "oxitailr"
-version = "0.2.20"
+version = "0.3.0"
 edition = "2021"
-description = "A modern, feature-rich log viewer with GUI interface"
+description = "A fast, low-resource terminal log viewer / live tailer"
 authors = ["Oxitailr Contributors"]
 license = "MIT"
 
