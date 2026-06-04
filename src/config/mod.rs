@@ -1,5 +1,6 @@
 mod settings;
 
+#[allow(unused_imports)] // LogLevelColors: used by later-phase theming
 pub use settings::{AlertConfig, AppConfig, LogLevelColors, SourceConfig};
 
 use anyhow::{Context, Result};

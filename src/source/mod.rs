@@ -23,9 +23,26 @@ pub trait Source: Send + Sync {
 
 #[derive(Debug, Clone)]
 pub enum SourceEvent {
-    Line { source: String, line: String },
-    StatusChange { source: String, info: SourceInfo },
-    Error { source: String, error: String },
+    /// A single line (used for notices like rotation, and by the SSH source).
+    Line {
+        source: String,
+        line: String,
+    },
+    /// A batch of lines read in one pass — one channel message and one
+    /// source-name allocation for the whole batch instead of per line, which
+    /// matters a lot on high-volume logs.
+    Lines {
+        source: String,
+        lines: Vec<String>,
+    },
+    StatusChange {
+        source: String,
+        info: SourceInfo,
+    },
+    Error {
+        source: String,
+        error: String,
+    },
 }
 
 /// Commands sent from the UI thread to the async task that owns the

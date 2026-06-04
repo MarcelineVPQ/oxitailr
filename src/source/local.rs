@@ -2,7 +2,6 @@ use super::{Source, SourceEvent};
 use crate::models::{SourceInfo, SourceStatus, SourceType};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::fs::File;
@@ -20,10 +19,10 @@ struct FileState {
     partial: String,
 }
 
-/// Interval between fallback polls of the file. notify events are an
-/// optimization layered on top of this; polling is the source of truth so new
-/// lines are picked up even when the watcher misses or coalesces events.
-const POLL_INTERVAL_MS: u64 = 250;
+/// How often each source polls its file for new content. Bounds the read rate
+/// regardless of how fast the file is written; 100ms is imperceptible latency
+/// for a log viewer.
+const POLL_INTERVAL_MS: u64 = 100;
 
 /// Get the inode of a file (Unix)
 #[cfg(unix)]
@@ -61,6 +60,10 @@ async fn read_lines_to_eof(
     file_state: &mut FileState,
     line_count: &mut u64,
 ) {
+    // Collect all currently-available complete lines, then emit them as a
+    // single batch — one channel send and one info lock for the whole read,
+    // instead of per line.
+    let mut batch: Vec<String> = Vec::new();
     let mut line = String::new();
     loop {
         line.clear();
@@ -69,22 +72,11 @@ async fn read_lines_to_eof(
             Ok(n) => {
                 file_state.last_position += n as u64;
                 if line.ends_with('\n') {
-                    // Complete line; prepend anything held from a previous read.
                     let mut full = std::mem::take(&mut file_state.partial);
                     full.push_str(&line);
                     let trimmed = full.trim_end();
                     if !trimmed.is_empty() {
-                        *line_count += 1;
-                        {
-                            let mut info_guard = info.lock().await;
-                            info_guard.line_count = *line_count;
-                        }
-                        let _ = sender
-                            .send(SourceEvent::Line {
-                                source: name.to_string(),
-                                line: trimmed.to_string(),
-                            })
-                            .await;
+                        batch.push(trimmed.to_string());
                     }
                 } else {
                     // Hit EOF mid-line; stash and wait for the rest to be written.
@@ -102,6 +94,20 @@ async fn read_lines_to_eof(
                 break;
             }
         }
+    }
+
+    if !batch.is_empty() {
+        *line_count += batch.len() as u64;
+        {
+            let mut info_guard = info.lock().await;
+            info_guard.line_count = *line_count;
+        }
+        let _ = sender
+            .send(SourceEvent::Lines {
+                source: name.to_string(),
+                lines: batch,
+            })
+            .await;
     }
 }
 
@@ -344,41 +350,12 @@ async fn run_local_tail(
     // line into two entries.
     flush_partial(&name, &info, &sender, &mut file_state, &mut line_count).await;
 
-    // Set up file watcher for new content
-    let (notify_tx, mut notify_rx) = mpsc::channel(100);
-    let path_for_watcher = path.clone();
-    let watched_path = path.clone();
-
-    let mut watcher = RecommendedWatcher::new(
-        move |res: Result<notify::Event, notify::Error>| {
-            if let Ok(event) = res {
-                if event.kind.is_modify() || event.kind.is_create() {
-                    // Only trigger for the specific file we're watching, not other files in the directory
-                    let is_our_file = event
-                        .paths
-                        .iter()
-                        .any(|p| p == &watched_path || p.file_name() == watched_path.file_name());
-                    if is_our_file {
-                        let _ = notify_tx.blocking_send(());
-                    }
-                }
-            }
-        },
-        Config::default(),
-    )?;
-
-    // Watch the parent directory to detect file recreation
-    if let Some(parent) = path_for_watcher.parent() {
-        watcher.watch(parent, RecursiveMode::NonRecursive)?;
-    } else {
-        watcher.watch(&path_for_watcher, RecursiveMode::NonRecursive)?;
-    }
-
-    // Now tail for new lines. The poll interval is the source of truth; notify
-    // events just let us react faster between polls. Relying on notify alone is
-    // unreliable — events get coalesced or dropped depending on how the writer
-    // flushes, the filesystem, or editors that rename-on-save — which is what
-    // made new lines fail to appear until a manual reload.
+    // Tail by polling at a fixed cadence. Each poll batch-reads everything that
+    // accumulated since the last one, so the read rate is bounded regardless of
+    // how fast the file is written (a filesystem-notify watcher fires once per
+    // write — thousands of times a second on a busy log — which storms the CPU
+    // for no benefit, since we coalesce reads anyway). Rotation/truncation is
+    // detected by the inode/size checks in read_new_content.
     let mut poll_interval =
         tokio::time::interval(std::time::Duration::from_millis(POLL_INTERVAL_MS));
     poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -389,9 +366,6 @@ async fn run_local_tail(
                 if *stop_rx.borrow() {
                     break;
                 }
-            }
-            _ = notify_rx.recv() => {
-                read_new_content(&path, &name, &info, &sender, &mut reader, &mut file_state, &mut line_count).await;
             }
             _ = poll_interval.tick() => {
                 read_new_content(&path, &name, &info, &sender, &mut reader, &mut file_state, &mut line_count).await;
@@ -418,12 +392,22 @@ mod tests {
     use std::time::Duration;
     use tokio::time::timeout;
 
-    /// Wait for the next `Line` event, skipping status/error events. Returns
-    /// `None` on timeout or channel close.
-    async fn next_line(rx: &mut mpsc::Receiver<SourceEvent>, dur: Duration) -> Option<String> {
+    /// Wait for the next emitted line, flattening `Lines` batches and skipping
+    /// status/error events. `pending` carries leftover batch lines between calls.
+    async fn next_line(
+        rx: &mut mpsc::Receiver<SourceEvent>,
+        pending: &mut std::collections::VecDeque<String>,
+        dur: Duration,
+    ) -> Option<String> {
         loop {
+            if let Some(line) = pending.pop_front() {
+                return Some(line);
+            }
             match timeout(dur, rx.recv()).await {
                 Ok(Some(SourceEvent::Line { line, .. })) => return Some(line),
+                Ok(Some(SourceEvent::Lines { lines, .. })) => {
+                    pending.extend(lines);
+                }
                 Ok(Some(_)) => continue, // ignore StatusChange / Error
                 Ok(None) | Err(_) => return None,
             }
@@ -440,10 +424,13 @@ mod tests {
 
         let mut source = LocalFileSource::new("test".to_string(), path.clone());
         let (tx, mut rx) = mpsc::channel(100);
+        let mut pending = std::collections::VecDeque::new();
         source.start(tx).await.unwrap();
 
         assert_eq!(
-            next_line(&mut rx, Duration::from_secs(2)).await.as_deref(),
+            next_line(&mut rx, &mut pending, Duration::from_secs(2))
+                .await
+                .as_deref(),
             Some("first line")
         );
 
@@ -457,7 +444,9 @@ mod tests {
         }
 
         assert_eq!(
-            next_line(&mut rx, Duration::from_secs(2)).await.as_deref(),
+            next_line(&mut rx, &mut pending, Duration::from_secs(2))
+                .await
+                .as_deref(),
             Some("second line")
         );
 
@@ -474,6 +463,7 @@ mod tests {
 
         let mut source = LocalFileSource::new("test".to_string(), path.clone());
         let (tx, mut rx) = mpsc::channel(100);
+        let mut pending = std::collections::VecDeque::new();
         source.start(tx).await.unwrap();
 
         // Let the initial (empty) read complete before writing, so the fragment
@@ -502,7 +492,9 @@ mod tests {
         }
 
         assert_eq!(
-            next_line(&mut rx, Duration::from_secs(2)).await.as_deref(),
+            next_line(&mut rx, &mut pending, Duration::from_secs(2))
+                .await
+                .as_deref(),
             Some("hello world")
         );
 
