@@ -33,18 +33,18 @@ Each [release](https://github.com/MarcelineVPQ/oxitailr/releases) ships three x8
 
 ### Linux — AppImage
 ```bash
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.3.2/Oxitailr-0.3.2-x86_64.AppImage
-chmod +x Oxitailr-0.3.2-x86_64.AppImage
-./Oxitailr-0.3.2-x86_64.AppImage /var/log/syslog
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.3.3/Oxitailr-0.3.3-x86_64.AppImage
+chmod +x Oxitailr-0.3.3-x86_64.AppImage
+./Oxitailr-0.3.3-x86_64.AppImage /var/log/syslog
 ```
 
 ### Linux — plain binary
-Download `oxitailr-0.3.2-x86_64`, `chmod +x`, then `./oxitailr-0.3.2-x86_64 /var/log/syslog`.
+Download `oxitailr-0.3.3-x86_64`, `chmod +x`, then `./oxitailr-0.3.3-x86_64 /var/log/syslog`.
 
 ### Windows
-Download `oxitailr-0.3.2-x86_64.exe`. In **PowerShell / Windows Terminal**:
+Download `oxitailr-0.3.3-x86_64.exe`. In **PowerShell / Windows Terminal**:
 ```powershell
-.\oxitailr-0.3.2-x86_64.exe C:\path\to\your.log
+.\oxitailr-0.3.3-x86_64.exe C:\path\to\your.log
 ```
 (or drag a log file onto the `.exe`). A plain double-click won't work — it needs a console.
 
@@ -149,7 +149,7 @@ cargo build --release            # -> target/release/oxitailr
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.3.2**.
+See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.3.3**.
 
 ## License
 

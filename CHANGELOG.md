@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.3.3] - 2026-06-04
+
+### Changed
+- **Removed the follow/pause toggle.** The viewer now just tails live and shows each new line as it arrives — there is no pause "mode" to manage. Scrolling up to read history is the only thing that detaches; it shows `↑ history — End → live`, and returning to the bottom resumes the live tail automatically. (Previously a terminal's scroll-wheel could silently flip the view to PAUSE, making it look like tailing had stopped.)
+
+### Fixed
+- The status indicator now reflects state at a glance (`● LIVE` vs `↑ history`) instead of an always-blue badge.
+
 ## [0.3.2] - 2026-06-04
 
 ### Added
@@ -313,7 +321,8 @@ SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight r
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.2...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.3...HEAD
+[0.3.3]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.20...v0.3.0
