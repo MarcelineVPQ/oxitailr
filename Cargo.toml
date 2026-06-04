@@ -1,6 +1,6 @@
 [package]
 name = "oxitailr"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 description = "A fast, low-resource terminal log viewer / live tailer"
 authors = ["Oxitailr Contributors"]

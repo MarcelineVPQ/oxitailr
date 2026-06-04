@@ -7,8 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.3.2] - 2026-06-04
+
 ### Added
 - **Open files from within the TUI** — `O` opens a path prompt to add a local file as a new source without restarting. Bracketed paste is enabled, so **dragging a file onto the terminal window** (which a terminal delivers as a pasted path) fills the prompt — press Enter to open it. `~` is expanded and `file://`/quotes are stripped.
+
+### Documentation
+- Rewrote the README to match the terminal UI (removed stale GUI-era claims; documented real keys, binaries, config, and data files).
 
 ## [0.3.1] - 2026-06-04
 
@@ -306,7 +313,8 @@ SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight r
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.0...v0.3.1
 [0.3.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.20...v0.3.0
 [0.2.20]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.19...v0.2.20
