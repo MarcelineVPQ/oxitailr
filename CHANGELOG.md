@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+- **Open files from within the TUI** — `O` opens a path prompt to add a local file as a new source without restarting. Bracketed paste is enabled, so **dragging a file onto the terminal window** (which a terminal delivers as a pasted path) fills the prompt — press Enter to open it. `~` is expanded and `file://`/quotes are stripped.
 
 ## [0.3.1] - 2026-06-04
 

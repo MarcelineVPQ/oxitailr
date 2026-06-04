@@ -8,7 +8,10 @@ use crate::app::{AppCore, CoreChannels, DisplayLine};
 use crate::models::LogLevel;
 use crate::state::{load_session, save_session, WindowState};
 use anyhow::Result;
-use crossterm::event::{Event, EventStream, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    DisableBracketedPaste, EnableBracketedPaste, Event, EventStream, KeyCode, KeyEventKind,
+    KeyModifiers,
+};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -30,6 +33,8 @@ enum Mode {
     Normal,
     Filter,
     Search,
+    /// Typing/pasting a local file path to open (also where a dragged-in path lands).
+    OpenFile,
 }
 
 /// Fields of the "add SSH source" form, in tab order.
@@ -70,6 +75,8 @@ struct Ui {
     follow: bool,
     mode: Mode,
     search: String,
+    /// Buffer for the open-file prompt (Mode::OpenFile).
+    open_path: String,
     show_help: bool,
     show_alerts: bool,
     /// Active SSH add form, if open.
@@ -91,6 +98,7 @@ impl Default for Ui {
             follow: true,
             mode: Mode::Normal,
             search: String::new(),
+            open_path: String::new(),
             show_help: false,
             show_alerts: false,
             ssh_form: None,
@@ -107,13 +115,18 @@ type Term = Terminal<CrosstermBackend<Stdout>>;
 pub async fn run(mut core: AppCore, mut channels: CoreChannels) -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    crossterm::execute!(stdout, EnterAlternateScreen)?;
+    // Bracketed paste lets a dragged-in / pasted file path arrive as one chunk.
+    crossterm::execute!(stdout, EnterAlternateScreen, EnableBracketedPaste)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout))?;
 
     let result = run_loop(&mut terminal, &mut core, &mut channels).await;
 
     disable_raw_mode()?;
-    crossterm::execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    crossterm::execute!(
+        terminal.backend_mut(),
+        DisableBracketedPaste,
+        LeaveAlternateScreen
+    )?;
     terminal.show_cursor()?;
     result
 }
@@ -159,6 +172,10 @@ async fn run_loop(terminal: &mut Term, core: &mut AppCore, ch: &mut CoreChannels
                         if handle_key(key.code, key.modifiers, core, &mut ui) {
                             break;
                         }
+                        needs_draw = true;
+                    }
+                    Some(Ok(Event::Paste(text))) => {
+                        handle_paste(text, core, &mut ui);
                         needs_draw = true;
                     }
                     Some(Ok(Event::Resize(_, _))) => needs_draw = true,
@@ -588,11 +605,12 @@ fn apply_sgr(mut style: Style, params: &str) -> Style {
 }
 
 fn draw_status(f: &mut Frame, area: Rect, core: &AppCore, ui: &Ui, shown: usize) {
-    if ui.mode == Mode::Filter || ui.mode == Mode::Search {
-        let (label, value) = if ui.mode == Mode::Filter {
-            ("filter", &core.filter_text)
-        } else {
-            ("search", &ui.search)
+    if ui.mode != Mode::Normal {
+        let (label, value) = match ui.mode {
+            Mode::Filter => ("filter", &core.filter_text),
+            Mode::Search => ("search", &ui.search),
+            Mode::OpenFile => ("open (type/drag a path, Enter)", &ui.open_path),
+            Mode::Normal => unreachable!(),
         };
         let mut spans = vec![
             Span::styled(
@@ -690,6 +708,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from("  /  n  N        search, next / prev match"),
         Line::from("  b  ]  [        bookmark, next / prev bookmark"),
         Line::from("  y              copy line to clipboard"),
+        Line::from("  O              open a file (or drag one onto the window)"),
         Line::from("  o / S          add SSH source / settings"),
         Line::from("  a              alerts        r reload   c clear"),
         Line::from("  ?              help          q / Esc  quit"),
@@ -906,6 +925,21 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
             }
             return false;
         }
+        Mode::OpenFile => {
+            match code {
+                KeyCode::Esc => {
+                    ui.open_path.clear();
+                    ui.mode = Mode::Normal;
+                }
+                KeyCode::Enter => open_path_now(core, ui),
+                KeyCode::Backspace => {
+                    ui.open_path.pop();
+                }
+                KeyCode::Char(c) => ui.open_path.push(c),
+                _ => {}
+            }
+            return false;
+        }
         Mode::Normal => {}
     }
 
@@ -985,6 +1019,10 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
             }
         }
         KeyCode::Char('a') => ui.show_alerts = !ui.show_alerts,
+        KeyCode::Char('O') => {
+            ui.open_path.clear();
+            ui.mode = Mode::OpenFile;
+        }
         KeyCode::Char('o') => ui.ssh_form = Some(SshForm::new()),
         KeyCode::Char('S') => ui.settings = Some(0),
         KeyCode::Tab => {
@@ -1007,6 +1045,52 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
 fn cursor_move(ui: &mut Ui, delta: isize) {
     ui.follow = false;
     ui.cursor = (ui.cursor as isize + delta).max(0) as usize; // clamped to total in draw
+}
+
+/// Handle a paste event. Terminals deliver a dragged-in file as its path (the
+/// whole thing as one chunk thanks to bracketed paste), so pasting/dragging
+/// into the open-file prompt fills it; in normal mode it pops that prompt
+/// prefilled, which is as close to "drag onto the window" as a terminal allows.
+fn handle_paste(text: String, core: &mut AppCore, ui: &mut Ui) {
+    let line = text.trim_end_matches(['\n', '\r']);
+    match ui.mode {
+        Mode::Filter => {
+            core.filter_text.push_str(line);
+            core.update_filter();
+        }
+        Mode::Search => ui.search.push_str(line),
+        Mode::OpenFile => ui.open_path.push_str(&clean_path(line)),
+        Mode::Normal => {
+            ui.open_path = clean_path(line);
+            ui.mode = Mode::OpenFile;
+        }
+    }
+}
+
+/// Strip the decoration a terminal/file-manager adds to a dragged path:
+/// surrounding quotes and a `file://` prefix.
+fn clean_path(s: &str) -> String {
+    let t = s.trim().trim_matches(['\'', '"']).trim();
+    t.strip_prefix("file://").unwrap_or(t).to_string()
+}
+
+fn expand_tilde(p: &str) -> String {
+    if let Some(rest) = p.strip_prefix('~') {
+        if let Some(home) = dirs::home_dir() {
+            return format!("{}{}", home.display(), rest);
+        }
+    }
+    p.to_string()
+}
+
+/// Open the path in the open-file prompt as a new local source.
+fn open_path_now(core: &mut AppCore, ui: &mut Ui) {
+    let raw = ui.open_path.trim();
+    if !raw.is_empty() {
+        core.add_local_source(PathBuf::from(expand_tilde(raw)));
+    }
+    ui.open_path.clear();
+    ui.mode = Mode::Normal;
 }
 
 /// Copy text to the system clipboard via the OSC 52 terminal escape, which
