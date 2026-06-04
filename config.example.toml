@@ -5,31 +5,32 @@
 # Maximum number of log entries to keep in memory
 buffer_size = 10000
 
-# Automatically scroll to follow new entries
-follow = true
-
-# Wrap long lines in the display
-wrap_lines = false
-
 # Show timestamps in log display
 show_timestamps = true
 
-# Show source name for each log entry
-show_source = true
+# Parse brace-wrapped lines as JSON
+auto_parse_json = true
 
-# Enable colored output
-color_enabled = true
+# Reopen the files that were open last time, when no files are passed on the
+# command line and no source below is marked auto_open = true.
+remember_last_session = true
+
+# NOTE: the terminal UI also reads `show_source`. Keys from the old GUI build
+# (follow, wrap_lines, color_enabled, theme, font_size, line_spacing) are
+# accepted for compatibility but ignored.
 
 # ============================================================================
 # SOURCES
 # ============================================================================
 
-# Local file source example
+# Local file source example.
+# A source opens automatically on startup only when enabled AND auto_open.
 [[sources]]
 type = "local"
 name = "app-logs"
 path = "/var/log/myapp/app.log"
 enabled = true
+auto_open = true
 
 # You can use wildcards for multiple files
 # [[sources]]
@@ -37,6 +38,7 @@ enabled = true
 # name = "all-logs"
 # path = "/var/log/*.log"
 # enabled = true
+# auto_open = true
 
 # SSH remote source example
 [[sources]]
@@ -48,6 +50,7 @@ user = "admin"
 path = "/var/log/syslog"
 # key_path = "/home/user/.ssh/id_rsa"  # Optional, uses default key if not specified
 enabled = true
+auto_open = true
 
 # Another SSH source example
 # [[sources]]
@@ -80,6 +83,26 @@ exclude = ["DEBUG", "TRACE"]
 [filters.debug]
 include = ["DEBUG", "TRACE"]
 exclude = []
+
+# ============================================================================
+# HIGHLIGHTS
+# ============================================================================
+# Paint matching text in a custom color (color is [R, G, B]). Substring match
+# by default; set regex = true to match a regular expression. Open the preset
+# picker with `p` in the app to apply a filter; highlights apply automatically.
+
+[[highlights]]
+pattern = "ERROR"
+color = [255, 64, 64]
+
+[[highlights]]
+pattern = "WARN"
+color = [255, 196, 0]
+
+[[highlights]]
+pattern = "\\b\\d{1,3}(\\.\\d{1,3}){3}\\b"   # IPv4 addresses
+regex = true
+color = [120, 200, 255]
 
 # ============================================================================
 # ALERTS

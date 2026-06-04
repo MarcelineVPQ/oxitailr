@@ -17,6 +17,26 @@ pub struct AppConfig {
     pub alerts: Vec<AlertConfig>,
     #[serde(default)]
     pub webhook: Option<WebhookConfig>,
+    /// Rules that colorize matching text in the log view.
+    #[serde(default)]
+    pub highlights: Vec<HighlightConfig>,
+}
+
+/// A rule that paints matching text in a custom color.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HighlightConfig {
+    /// Substring (case-insensitive) or regex to match.
+    pub pattern: String,
+    /// Treat `pattern` as a regular expression instead of a literal substring.
+    #[serde(default)]
+    pub regex: bool,
+    /// Foreground color as [R, G, B]. Defaults to a warm yellow.
+    #[serde(default = "default_highlight_color")]
+    pub color: [u8; 3],
+}
+
+fn default_highlight_color() -> [u8; 3] {
+    [255, 214, 0]
 }
 
 /// Custom colors for log levels (stored as [R, G, B])
@@ -181,6 +201,14 @@ impl SourceConfig {
         match self {
             SourceConfig::Local { enabled, .. } => *enabled,
             SourceConfig::Ssh { enabled, .. } => *enabled,
+        }
+    }
+
+    /// Whether this source should be opened automatically on startup.
+    pub fn auto_open(&self) -> bool {
+        match self {
+            SourceConfig::Local { auto_open, .. } => *auto_open,
+            SourceConfig::Ssh { auto_open, .. } => *auto_open,
         }
     }
 }
