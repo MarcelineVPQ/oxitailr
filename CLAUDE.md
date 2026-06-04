@@ -2,8 +2,17 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Oxitailr is a GUI log viewer / live tailer built in Rust on `eframe`/`egui`, with local-file
-and SSH log sources.
+Oxitailr is a **terminal** (TUI) log viewer / live tailer built in Rust on `ratatui`/`crossterm`,
+with local-file and SSH log sources.
+
+> **As of v0.3.0 the frontend was rewritten from egui to a Ratatui TUI.** The headless core is
+> `src/app.rs` (`AppCore`: log buffer, ingestion, sources, filters, alerts); the terminal frontend
+> is `src/tui.rs` (event-driven `tokio::select!` loop over crossterm input + the source/alert
+> channels). The backend modules (`src/source/`, `src/parser/`, `src/filter/`, `src/alert/`,
+> `src/config/`, `src/state/`, `src/credentials.rs`, `src/models/`) are unchanged from the egui era.
+> The "Architecture" notes below that reference `eframe`/`egui`/`TailLoggerApp`/`src/ui/` are
+> **historical** — that layer was removed. Some features (SSH UI, bookmarks, alerts UI, settings)
+> are backend-ready but not yet wired into the TUI (`#![allow(dead_code)]` covers them meanwhile).
 
 ## Commands
 

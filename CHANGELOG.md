@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.3.0] - 2026-06-03
+
+### Changed
+- **Rewrote the frontend as a terminal UI (TUI).** Replaced the egui/eframe GUI — which had a high CPU/memory floor (≈50% CPU and ≈500 MB even idle on a focused window) — with an event-driven Ratatui terminal interface. The entire async backend (file/SSH tailing, parsers, filters, alerts) is unchanged. Measured: **idle ≈1.6% CPU / ≈10 MB**, and a 5000 lines/sec flood ≈3.5% CPU / ≈16 MB.
+- **File tailing** now uses bounded polling with batched line events instead of a filesystem-notify watcher, which fired thousands of times a second on busy logs and stormed the CPU.
+
+### Phase 1 (this release) includes
+Multi-source tabs, follow/scroll (`j`/`k`, `Ctrl+d`/`u`, `PgUp`/`Dn`, `g`/`G`, Space), per-level toggles (`1`–`6`), live filter (`f`), search with highlight (`/`, `n`/`N`), ANSI colors, status bar, `?` help, and CLI/glob file arguments.
+
+### Not yet ported (backend is in place; coming in follow-up releases)
+SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight rules.
+
+### Notes
+- Oxitailr is now a terminal application — run it from a terminal: `oxitailr /var/log/syslog`.
+
 ## [0.2.20] - 2026-06-03
 
 ### Changed
@@ -280,7 +295,8 @@ _Nothing yet._
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.20...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.20...v0.3.0
 [0.2.20]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.19...v0.2.20
 [0.2.19]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.18...v0.2.19
 [0.2.18]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.2.17...v0.2.18
