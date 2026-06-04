@@ -4,7 +4,7 @@
 //! source/alert channels and only redraws on a change, so it sits at ~0% CPU
 //! when idle. ratatui diffs at the character level, so redraws are cheap.
 
-use crate::app::{AppCore, CoreChannels, DisplayLine};
+use crate::app::{AppCore, CoreChannels, DisplayLine, HighlightMatcher};
 use crate::models::LogLevel;
 use crate::state::{load_session, save_session, WindowState};
 use anyhow::Result;
@@ -83,6 +83,8 @@ struct Ui {
     ssh_form: Option<SshForm>,
     /// Settings modal open + selected row.
     settings: Option<usize>,
+    /// Filter-preset picker open + selected row.
+    presets: Option<usize>,
     /// Per-source bookmarks: source name -> set of line numbers.
     bookmarks: HashMap<String, HashSet<usize>>,
     /// Rows available for log lines on the last draw (for paging).
@@ -103,6 +105,7 @@ impl Default for Ui {
             show_alerts: false,
             ssh_form: None,
             settings: None,
+            presets: None,
             bookmarks: HashMap::new(),
             viewport: 20,
         }
@@ -141,13 +144,19 @@ fn session_path() -> std::path::PathBuf {
 async fn run_loop(terminal: &mut Term, core: &mut AppCore, ch: &mut CoreChannels) -> Result<()> {
     let mut ui = Ui::default();
 
-    // Restore saved bookmarks.
+    // Restore saved bookmarks, and — when nothing was opened from the CLI or
+    // config — the files that were open last time.
     if let Some(session) = load_session(&session_path()) {
         ui.bookmarks = session
             .bookmarks
             .into_iter()
             .map(|(k, v)| (k, v.into_iter().collect()))
             .collect();
+        if core.started_empty && core.config.general.remember_last_session {
+            for path in &session.open_local_files {
+                core.add_local_source(std::path::PathBuf::from(path));
+            }
+        }
     }
 
     let mut events = EventStream::new();
@@ -219,10 +228,9 @@ async fn run_loop(terminal: &mut Term, core: &mut AppCore, ch: &mut CoreChannels
             (k.clone(), v)
         })
         .collect();
-    let open_files: Vec<String> = sorted_sources(core);
     save_session(
         &session_path(),
-        open_files,
+        core.open_local_paths(),
         Vec::new(),
         WindowState::default(),
         bookmarks,
@@ -418,6 +426,9 @@ fn draw(f: &mut Frame, core: &AppCore, ui: &mut Ui) {
     if let Some(sel) = ui.settings {
         draw_settings(f, f.area(), core, sel);
     }
+    if let Some(sel) = ui.presets {
+        draw_presets(f, f.area(), core, sel);
+    }
     if let Some(form) = &ui.ssh_form {
         draw_ssh_form(f, f.area(), form);
     }
@@ -518,35 +529,91 @@ fn render_line<'a>(
         ansi_to_spans(&line.entry.raw, &mut spans);
     } else {
         let base = Style::default().fg(level_color(line.entry.level));
-        let msg = &line.entry.message;
-        if !search_lower.is_empty() && msg.to_lowercase().contains(search_lower) {
-            highlight_matches(msg, search_lower, base, &mut spans);
-        } else {
-            spans.push(Span::styled(msg.clone(), base));
-        }
+        styled_message(
+            &line.entry.message,
+            base,
+            &core.highlights,
+            search_lower,
+            &mut spans,
+        );
     }
 
     Line::from(spans)
 }
 
-/// Split `text` so that case-insensitive occurrences of `needle` get a yellow
-/// background; everything else uses `base`.
-fn highlight_matches(text: &str, needle: &str, base: Style, out: &mut Vec<Span>) {
-    let hay = text.to_lowercase();
-    let hl = Style::default().bg(Color::Yellow).fg(Color::Black);
-    let mut pos = 0usize;
-    while let Some(rel) = hay[pos..].find(needle) {
-        let start = pos + rel;
-        if start > pos {
-            out.push(Span::styled(text[pos..start].to_string(), base));
+/// Render `msg` into spans, painting config highlight rules in their color and
+/// the live search term with a yellow background (search takes precedence).
+/// Everything else uses `base`. Operates on byte offsets; non-ASCII substring
+/// matches are skipped to stay panic-free (regex rules still apply).
+fn styled_message(
+    msg: &str,
+    base: Style,
+    highlights: &[HighlightMatcher],
+    search_lower: &str,
+    out: &mut Vec<Span>,
+) {
+    // Fast path: nothing to highlight.
+    if highlights.is_empty() && search_lower.is_empty() {
+        out.push(Span::styled(msg.to_string(), base));
+        return;
+    }
+
+    let n = msg.len();
+    let mut marks: Vec<Option<Style>> = vec![None; n];
+    let fill =
+        |marks: &mut [Option<Style>], start: usize, end: usize, style: Style, force: bool| {
+            for m in marks.iter_mut().take(end.min(n)).skip(start.min(n)) {
+                if force || m.is_none() {
+                    *m = Some(style);
+                }
+            }
+        };
+
+    let lower = msg.to_lowercase();
+    let ascii_aligned = lower.len() == n;
+
+    // Config highlight rules (first matching rule wins on overlap).
+    for h in highlights {
+        let style = Style::default().fg(Color::Rgb(h.color[0], h.color[1], h.color[2]));
+        if let Some(re) = &h.regex {
+            for m in re.find_iter(msg) {
+                fill(&mut marks, m.start(), m.end(), style, false);
+            }
+        } else if ascii_aligned && !h.needle_lower.is_empty() {
+            let mut pos = 0;
+            while let Some(rel) = lower[pos..].find(&h.needle_lower) {
+                let start = pos + rel;
+                let end = start + h.needle_lower.len();
+                fill(&mut marks, start, end, style, false);
+                pos = end;
+            }
         }
-        let end = start + needle.len();
-        out.push(Span::styled(text[start..end].to_string(), hl));
-        pos = end;
     }
-    if pos < text.len() {
-        out.push(Span::styled(text[pos..].to_string(), base));
+
+    // Search term overrides highlight colors.
+    if ascii_aligned && !search_lower.is_empty() {
+        let hl = Style::default().bg(Color::Yellow).fg(Color::Black);
+        let mut pos = 0;
+        while let Some(rel) = lower[pos..].find(search_lower) {
+            let start = pos + rel;
+            let end = start + search_lower.len();
+            fill(&mut marks, start, end, hl, true);
+            pos = end;
+        }
     }
+
+    // Coalesce runs of equal style into spans (split on char boundaries).
+    let mut run_start = 0usize;
+    let mut run_style = marks.first().copied().flatten().unwrap_or(base);
+    for (i, _) in msg.char_indices().skip(1) {
+        let style = marks[i].unwrap_or(base);
+        if style != run_style {
+            out.push(Span::styled(msg[run_start..i].to_string(), run_style));
+            run_start = i;
+            run_style = style;
+        }
+    }
+    out.push(Span::styled(msg[run_start..].to_string(), run_style));
 }
 
 /// Minimal ANSI SGR → ratatui span conversion (colors + bold; other codes reset).
@@ -712,7 +779,7 @@ fn centered(area: Rect, w: u16, h: u16) -> Rect {
 }
 
 fn draw_help(f: &mut Frame, area: Rect) {
-    let rect = centered(area, 58, 20);
+    let rect = centered(area, 58, 21);
     let text = vec![
         Line::from("  j/k  ↓/↑       move cursor"),
         Line::from("  Ctrl+d/u       half page     PgDn/PgUp  page"),
@@ -721,6 +788,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from("  Tab / S-Tab    switch source"),
         Line::from("  1..6           toggle level  T D I W E F"),
         Line::from("  f              filter (regex/substring)"),
+        Line::from("  p              filter presets (from config)"),
         Line::from("  /  n  N        search, next / prev match"),
         Line::from("  b  ]  [        bookmark, next / prev bookmark"),
         Line::from("  y              copy line to clipboard"),
@@ -797,6 +865,47 @@ fn draw_settings(f: &mut Frame, area: Rect, core: &AppCore, sel: usize) {
     f.render_widget(ratatui::widgets::Clear, rect);
     f.render_widget(
         Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" Settings ")),
+        rect,
+    );
+}
+
+/// Filter-preset picker. Row 0 clears any applied preset; rows 1.. are the
+/// named presets from `[filters.<name>]` in the config.
+fn draw_presets(f: &mut Frame, area: Rect, core: &AppCore, sel: usize) {
+    let names = core.preset_names();
+    let rect = centered(area, 50, (names.len() + 5).clamp(6, 18) as u16);
+    let mut lines: Vec<Line> = Vec::new();
+    let row = |label: String, selected: bool| {
+        let style = if selected {
+            Style::default().fg(Color::Black).bg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+        Line::from(Span::styled(label, style))
+    };
+    lines.push(row("  ✕ clear filter ".to_string(), sel == 0));
+    if names.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  (no presets — add [filters.<name>] to config)",
+            Style::default().fg(Color::DarkGray),
+        )));
+    } else {
+        for (i, name) in names.iter().enumerate() {
+            lines.push(row(format!("  {} ", name), sel == i + 1));
+        }
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  ↑/↓ move · Enter apply · Esc close",
+        Style::default().fg(Color::DarkGray),
+    )));
+    f.render_widget(ratatui::widgets::Clear, rect);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Filter presets "),
+        ),
         rect,
     );
 }
@@ -904,6 +1013,27 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
                 1 => core.config.general.auto_parse_json = !core.config.general.auto_parse_json,
                 _ => {}
             },
+            _ => {}
+        }
+        return false;
+    }
+    if let Some(sel) = ui.presets {
+        // Row 0 clears the filter; rows 1.. are the named presets.
+        let names = core.preset_names();
+        let max = names.len(); // selectable rows: 0..=names.len()
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('p') => ui.presets = None,
+            KeyCode::Up | KeyCode::Char('k') => ui.presets = Some(sel.saturating_sub(1)),
+            KeyCode::Down | KeyCode::Char('j') => ui.presets = Some((sel + 1).min(max)),
+            KeyCode::Enter => {
+                if sel == 0 {
+                    core.clear_filter_rules();
+                } else if let Some(name) = names.get(sel - 1) {
+                    core.apply_filter_preset(name);
+                }
+                ui.presets = None;
+                ui.follow = true;
+            }
             _ => {}
         }
         return false;
@@ -1041,6 +1171,7 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
         }
         KeyCode::Char('o') => ui.ssh_form = Some(SshForm::new()),
         KeyCode::Char('S') => ui.settings = Some(0),
+        KeyCode::Char('p') => ui.presets = Some(0),
         KeyCode::Tab => {
             let n = core.source_infos.len().max(1);
             ui.tab = (ui.tab + 1) % n;
@@ -1128,5 +1259,69 @@ fn current_source(core: &AppCore, ui: &Ui) -> Option<String> {
         sources.get(ui.tab).cloned()
     } else {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn hl(needle: &str, color: [u8; 3]) -> HighlightMatcher {
+        HighlightMatcher {
+            regex: None,
+            needle_lower: needle.to_lowercase(),
+            color,
+        }
+    }
+
+    /// The concatenation of all rendered spans must reproduce the input exactly.
+    fn rendered_text(spans: &[Span]) -> String {
+        spans.iter().map(|s| s.content.as_ref()).collect()
+    }
+
+    #[test]
+    fn no_rules_is_single_base_span() {
+        let base = Style::default();
+        let mut out = Vec::new();
+        styled_message("hello world", base, &[], "", &mut out);
+        assert_eq!(out.len(), 1);
+        assert_eq!(rendered_text(&out), "hello world");
+    }
+
+    #[test]
+    fn substring_highlight_colors_match_only() {
+        let base = Style::default();
+        let rules = [hl("error", [255, 0, 0])];
+        let mut out = Vec::new();
+        styled_message("an ERROR here", base, &rules, "", &mut out);
+        assert_eq!(rendered_text(&out), "an ERROR here");
+        // The matched run carries the rule color; surrounding text does not.
+        let colored: Vec<&str> = out
+            .iter()
+            .filter(|s| s.style.fg == Some(Color::Rgb(255, 0, 0)))
+            .map(|s| s.content.as_ref())
+            .collect();
+        assert_eq!(colored, vec!["ERROR"]);
+    }
+
+    #[test]
+    fn search_overrides_highlight_on_overlap() {
+        let base = Style::default();
+        let rules = [hl("error", [255, 0, 0])];
+        let mut out = Vec::new();
+        styled_message("the error line", base, &rules, "error", &mut out);
+        assert_eq!(rendered_text(&out), "the error line");
+        // "error" should be the search style (yellow bg), not the rule color.
+        let search_span = out.iter().find(|s| s.content.as_ref() == "error").unwrap();
+        assert_eq!(search_span.style.bg, Some(Color::Yellow));
+    }
+
+    #[test]
+    fn roundtrips_with_multiple_matches() {
+        let base = Style::default();
+        let rules = [hl("ab", [1, 2, 3])];
+        let mut out = Vec::new();
+        styled_message("ab cd ab", base, &rules, "", &mut out);
+        assert_eq!(rendered_text(&out), "ab cd ab");
     }
 }

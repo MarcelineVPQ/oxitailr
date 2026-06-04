@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
+## [0.3.4] - 2026-06-04
+
+### Added — egui feature parity
+- **Filter presets.** `[filters.<name>]` presets from the config can be applied in-app with the `p` picker (`✕ clear filter` row resets them).
+- **Highlight rules.** New `[[highlights]]` config section paints matching text in a custom `[R, G, B]` color (substring by default, `regex = true` for patterns). Search highlighting takes precedence on overlap.
+- **Session restore.** When no files are passed on the command line and no source is auto-opened, the files open last time are reopened (gated by `general.remember_last_session`, default on). `session.json` now stores open local file paths alongside bookmarks.
+
+### Changed
+- A configured source now opens on startup only when **both** `enabled` and `auto_open` are true (matching the egui app). Previously every `enabled` source opened. Add `auto_open = true` to keep a source opening automatically.
+
 ## [0.3.3] - 2026-06-04
 
 ### Changed
@@ -321,7 +331,8 @@ SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight r
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.0...v0.3.1

@@ -3,9 +3,9 @@
 //! same core drives the TUI (and could drive anything else).
 
 use crate::alert::{AlertDispatcher, AlertEvent, AlertRule};
-use crate::config::{AlertConfig, AppConfig, SourceConfig};
+use crate::config::{AlertConfig, AppConfig, HighlightConfig, SourceConfig};
 use crate::filter::{FilterEngine, FilterRule};
-use crate::models::{LogEntry, LogLevel, SourceInfo};
+use crate::models::{LogEntry, LogLevel, SourceInfo, SourceType};
 use crate::parser::{JsonParser, Parser, PlainParser};
 use crate::source::{SourceCommand, SourceEvent, SourceManager};
 use std::collections::{HashMap, VecDeque};
@@ -13,6 +13,31 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::runtime::Runtime;
 use tokio::sync::mpsc;
+
+/// A compiled highlight rule. The color stays as raw RGB so this module keeps
+/// no dependency on any frontend's color type; the renderer converts it.
+pub struct HighlightMatcher {
+    /// Compiled regex when the rule is a regex; `None` for substring rules.
+    pub regex: Option<regex::Regex>,
+    /// Lowercased needle for case-insensitive substring rules.
+    pub needle_lower: String,
+    pub color: [u8; 3],
+}
+
+impl HighlightMatcher {
+    fn compile(cfg: &HighlightConfig) -> Option<Self> {
+        let regex = if cfg.regex {
+            Some(regex::Regex::new(&cfg.pattern).ok()?)
+        } else {
+            None
+        };
+        Some(Self {
+            regex,
+            needle_lower: cfg.pattern.to_lowercase(),
+            color: cfg.color,
+        })
+    }
+}
 
 /// A buffered log line. ANSI color spans are parsed lazily at render time
 /// (only for visible lines that contain escape codes), so this is cheap to
@@ -109,6 +134,11 @@ pub struct AppCore {
     runtime: Arc<Runtime>,
     plain_parser: PlainParser,
     json_parser: JsonParser,
+    /// Compiled highlight rules from config (applied at render time).
+    pub highlights: Vec<HighlightMatcher>,
+    /// True when nothing was opened from the CLI or config auto-open — the
+    /// frontend uses this to decide whether to restore the previous session.
+    pub started_empty: bool,
 }
 
 /// Channel receivers handed to the frontend event loop (kept out of [`AppCore`]
@@ -167,17 +197,32 @@ impl AppCore {
             runtime,
             plain_parser: PlainParser::new(),
             json_parser: JsonParser::new(),
+            highlights: Vec::new(),
+            started_empty: true,
         };
 
+        core.highlights = core
+            .config
+            .highlights
+            .iter()
+            .filter_map(HighlightMatcher::compile)
+            .collect();
+
+        let had_cli_files = !initial_files.is_empty();
         for path in initial_files {
             core.add_local_source(path);
         }
         let sources = core.config.sources.clone();
+        let mut opened_config = false;
         for source_config in sources {
-            if source_config.is_enabled() {
+            // A source opens on startup only when it is both enabled and marked
+            // auto_open — matching the egui app's behavior.
+            if source_config.is_enabled() && source_config.auto_open() {
                 core.add_source_from_config(source_config);
+                opened_config = true;
             }
         }
+        core.started_empty = !had_cli_files && !opened_config;
 
         (
             core,
@@ -252,6 +297,49 @@ impl AppCore {
         self.log_state.clear();
         let names: Vec<String> = self.source_infos.keys().cloned().collect();
         let _ = self.source_cmd_tx.send(SourceCommand::Reload { names });
+    }
+
+    /// Paths of the currently open local sources, for session persistence.
+    pub fn open_local_paths(&self) -> Vec<String> {
+        self.source_infos
+            .values()
+            .filter(|i| i.source_type == SourceType::Local)
+            .map(|i| i.path.clone())
+            .collect()
+    }
+
+    /// Names of the configured filter presets (`[filters.<name>]`), sorted.
+    pub fn preset_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.config.filters.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Apply a named filter preset from config, replacing the current include/
+    /// exclude rules (the live text filter is left untouched). Returns false if
+    /// no preset by that name exists.
+    pub fn apply_filter_preset(&mut self, name: &str) -> bool {
+        let Some(cfg) = self.config.filters.get(name).cloned() else {
+            return false;
+        };
+        self.filter_engine.clear_rules();
+        for pattern in &cfg.include {
+            self.filter_engine
+                .add_include_rule(FilterRule::regex(pattern));
+        }
+        for pattern in &cfg.exclude {
+            self.filter_engine
+                .add_exclude_rule(FilterRule::regex(pattern));
+        }
+        for rule in cfg.rules {
+            self.filter_engine.add_include_rule(rule);
+        }
+        true
+    }
+
+    /// Clear any applied preset (include/exclude rules).
+    pub fn clear_filter_rules(&mut self) {
+        self.filter_engine.clear_rules();
     }
 
     /// Recompile the live filter from `filter_text`.

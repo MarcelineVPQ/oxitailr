@@ -1,7 +1,7 @@
 mod settings;
 
 #[allow(unused_imports)] // LogLevelColors: used by later-phase theming
-pub use settings::{AlertConfig, AppConfig, LogLevelColors, SourceConfig};
+pub use settings::{AlertConfig, AppConfig, HighlightConfig, LogLevelColors, SourceConfig};
 
 use anyhow::{Context, Result};
 use std::path::Path;
@@ -23,4 +23,18 @@ pub fn save_config(config: &AppConfig, path: &Path) -> Result<()> {
         .with_context(|| format!("Failed to write config file: {}", path.display()))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn example_config_parses() {
+        // The shipped example must always deserialize into the current schema.
+        let cfg = load_config(Path::new("config.example.toml")).expect("example config parses");
+        assert!(cfg.filters.contains_key("production"));
+        assert_eq!(cfg.highlights.len(), 3);
+        assert!(cfg.sources.iter().any(|s| s.auto_open()));
+    }
 }

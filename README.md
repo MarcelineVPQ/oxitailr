@@ -17,15 +17,16 @@ A fast, low-resource **terminal** log viewer / live tailer built in Rust.
 - **Real-time tailing** — local files and remote SSH sources, live.
 - **Multiple sources as tabs** — `Tab` / `Shift+Tab` to switch. Open a local file with `O` (or **drag one onto the terminal window**); add an SSH source with `o`.
 - **JSON & ANSI** — auto-detects and parses JSON log lines; renders ANSI color codes.
-- **Filtering** — live regex/substring filter (`f`) and per-level toggles (`1`–`6`, Trace…Fatal).
-- **Search** — live highlight as you type (`/`), jump between matches (`n` / `N`).
+- **Filtering & presets** — live regex/substring filter (`f`), per-level toggles (`1`–`6`, Trace…Fatal), and saved filter presets from the config (`p` to pick one).
+- **Search & highlight rules** — live search highlight as you type (`/`), jump between matches (`n` / `N`), plus config-defined highlight rules that paint matching text in a custom color.
 - **Cursor, bookmarks & copy** — move a selection cursor through the log; bookmark lines (`b`, jump with `]` / `[`) — bookmarks persist across runs; copy a line to the clipboard (`y`, via OSC 52, so it works over SSH).
 - **Alerts** — rules defined in the config fire desktop / sound / webhook actions; an in-app indicator (`⚠ N`) and an `a` popup show recent hits.
+- **Sessions** — reopens the files you had open last time (`remember_last_session`), and auto-opens sources marked `auto_open` in the config.
 - **Log-rotation detection** — keeps tailing across `logrotate` / truncation.
 - **Settings** (`S`) — toggle timestamp display and JSON auto-parsing.
 - **Tiny footprint** — fully event-driven: ~0–2% CPU and ~10 MB RAM, even on busy logs.
 
-Not yet ported from the old GUI (tracked in the changelog): a custom highlight-rule editor, filter-preset selection, and restoring previously-open files on launch (bookmarks *do* persist).
+Filter presets and highlight rules are defined in the config file; the in-app *editors* for creating them (and SSH password storage in an OS keychain) from the old GUI are not yet ported.
 
 ## Installation
 
@@ -33,18 +34,18 @@ Each [release](https://github.com/MarcelineVPQ/oxitailr/releases) ships three x8
 
 ### Linux — AppImage
 ```bash
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.3.3/Oxitailr-0.3.3-x86_64.AppImage
-chmod +x Oxitailr-0.3.3-x86_64.AppImage
-./Oxitailr-0.3.3-x86_64.AppImage /var/log/syslog
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.3.4/Oxitailr-0.3.4-x86_64.AppImage
+chmod +x Oxitailr-0.3.4-x86_64.AppImage
+./Oxitailr-0.3.4-x86_64.AppImage /var/log/syslog
 ```
 
 ### Linux — plain binary
-Download `oxitailr-0.3.3-x86_64`, `chmod +x`, then `./oxitailr-0.3.3-x86_64 /var/log/syslog`.
+Download `oxitailr-0.3.4-x86_64`, `chmod +x`, then `./oxitailr-0.3.4-x86_64 /var/log/syslog`.
 
 ### Windows
-Download `oxitailr-0.3.3-x86_64.exe`. In **PowerShell / Windows Terminal**:
+Download `oxitailr-0.3.4-x86_64.exe`. In **PowerShell / Windows Terminal**:
 ```powershell
-.\oxitailr-0.3.3-x86_64.exe C:\path\to\your.log
+.\oxitailr-0.3.4-x86_64.exe C:\path\to\your.log
 ```
 (or drag a log file onto the `.exe`). A plain double-click won't work — it needs a console.
 
@@ -70,7 +71,7 @@ oxitailr -c custom.toml /var/log/app.log  # custom config file
 oxitailr -m 50000 /var/log/large.log      # buffer size (max lines kept)
 ```
 
-Inside the app: press **`?`** for the full key list, **`q`** to quit, **`Space`** / **`G`** to follow new lines.
+Inside the app: press **`?`** for the full key list, **`q`** to quit. It tails live by default — scroll up to read history, and **`G`** / **`End`** jumps back to the newest line.
 
 ## Keyboard Shortcuts
 
@@ -79,11 +80,12 @@ Inside the app: press **`?`** for the full key list, **`q`** to quit, **`Space`*
 | `j` / `k`, `↓` / `↑` | Move cursor one line |
 | `Ctrl+d` / `Ctrl+u` | Half page down / up |
 | `PgDn` / `PgUp` | Page down / up |
-| `g` / `G` | Jump to top / bottom (`G` resumes follow) |
-| `Space` | Toggle follow (auto-scroll) |
+| `g` | Jump to top (scroll back through history) |
+| `G` / `End` / `Space` | Jump to the newest line (resume live tail) |
 | `Tab` / `Shift+Tab` | Switch source |
 | `1`–`6` | Toggle level visibility (Trace…Fatal) |
 | `f` | Filter (regex / substring) |
+| `p` | Pick a filter preset (from config) |
 | `/`, then `n` / `N` | Search, next / previous match |
 | `b` · `]` / `[` | Bookmark cursor line · jump to next / prev bookmark |
 | `y` | Copy the cursor line to the clipboard |
@@ -97,20 +99,22 @@ Inside the app: press **`?`** for the full key list, **`q`** to quit, **`Space`*
 
 ## Configuration
 
-Config lives at `~/.config/oxitailr/config.toml` (see `config.example.toml` for the full schema). The TUI currently reads: `general.buffer_size`, `general.show_timestamps`, `general.auto_parse_json`, the `[[sources]]` list, and `[[alerts]]`. Other keys from earlier (GUI-era) versions — theme, fonts, line spacing, `wrap_lines`, `auto_open`, filter presets — are ignored.
+Config lives at `~/.config/oxitailr/config.toml` (see `config.example.toml` for the full schema). The TUI reads: `general.{buffer_size, show_timestamps, auto_parse_json, show_source, remember_last_session}`, the `[[sources]]` list (with `enabled` / `auto_open`), `[filters.<name>]` presets, `[[highlights]]` rules, and `[[alerts]]`. Old GUI-only keys — theme, fonts, line spacing, `wrap_lines` — are accepted but ignored.
 
 ```toml
 [general]
-buffer_size = 10000      # max lines kept in memory
+buffer_size = 10000          # max lines kept in memory
 show_timestamps = true
-auto_parse_json = true   # parse brace-wrapped lines as JSON
+auto_parse_json = true       # parse brace-wrapped lines as JSON
+remember_last_session = true # reopen last session's files when none are given
 
-# Sources opened on startup
+# A source opens on startup only when enabled AND auto_open.
 [[sources]]
 type = "local"
 name = "app"
 path = "/var/log/myapp/app.log"
 enabled = true
+auto_open = true
 
 [[sources]]
 type = "ssh"
@@ -120,6 +124,18 @@ port = 22
 user = "admin"
 path = "/var/log/syslog"
 enabled = true
+auto_open = true
+
+# Filter preset — pick it in-app with `p`
+[filters.production]
+include = ["ERROR", "FATAL"]   # OR logic; regex patterns
+exclude = ["DEBUG", "TRACE"]
+
+# Highlight rule — paints matching text in [R, G, B]
+[[highlights]]
+pattern = "ERROR"
+color = [255, 64, 64]
+# regex = true               # treat `pattern` as a regular expression
 
 # Alert rule — fires its actions and shows in the in-app indicator
 [[alerts]]
@@ -138,7 +154,7 @@ Oxitailr stores data under `~/.config/oxitailr/`:
 | File | Purpose |
 |------|---------|
 | `config.toml` | Configuration |
-| `session.json` | Persisted bookmarks (restored on launch) |
+| `session.json` | Bookmarks + last-open files (restored on launch) |
 
 ## Building for Distribution
 
@@ -149,7 +165,7 @@ cargo build --release            # -> target/release/oxitailr
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.3.3**.
+See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.3.4**.
 
 ## License
 
