@@ -109,7 +109,6 @@ pub struct AppCore {
     runtime: Arc<Runtime>,
     plain_parser: PlainParser,
     json_parser: JsonParser,
-    use_auto_parser: bool,
 }
 
 /// Channel receivers handed to the frontend event loop (kept out of [`AppCore`]
@@ -159,7 +158,6 @@ impl AppCore {
             filter_text: String::new(),
             filter_error: None,
             show_levels: [true; 6],
-            use_auto_parser: config.general.auto_parse_json,
             config,
             source_infos: HashMap::new(),
             source_cmd_tx,
@@ -198,6 +196,28 @@ impl AppCore {
         let _ = self
             .source_cmd_tx
             .send(SourceCommand::AddLocal { name, path });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn add_ssh_source(
+        &mut self,
+        name: String,
+        host: String,
+        user: String,
+        path: String,
+        port: Option<u16>,
+        key_path: Option<PathBuf>,
+        password: Option<String>,
+    ) {
+        let _ = self.source_cmd_tx.send(SourceCommand::AddSsh {
+            name,
+            host,
+            user,
+            path,
+            port,
+            key_path,
+            password,
+        });
     }
 
     fn add_source_from_config(&mut self, source_config: SourceConfig) {
@@ -275,7 +295,7 @@ impl AppCore {
     }
 
     fn ingest_line(&mut self, source: &str, line: String) {
-        let entry = if self.use_auto_parser
+        let entry = if self.config.general.auto_parse_json
             && line.trim_start().starts_with('{')
             && line.trim_end().ends_with('}')
         {

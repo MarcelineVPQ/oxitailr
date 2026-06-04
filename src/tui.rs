@@ -21,6 +21,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::{Frame, Terminal};
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Stdout};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -30,6 +31,32 @@ enum Mode {
     Filter,
     Search,
 }
+
+/// Fields of the "add SSH source" form, in tab order.
+const SSH_LABELS: [&str; 6] = [
+    "Name",
+    "Host",
+    "User",
+    "Remote path",
+    "Port",
+    "Key path (optional)",
+];
+
+struct SshForm {
+    fields: [String; 6],
+    focus: usize,
+}
+
+impl SshForm {
+    fn new() -> Self {
+        let mut fields: [String; 6] = std::array::from_fn(|_| String::new());
+        fields[4] = "22".to_string(); // default port
+        Self { fields, focus: 0 }
+    }
+}
+
+/// Toggleable settings shown in the settings modal.
+const SETTINGS_ITEMS: [&str; 2] = ["Show timestamps", "Auto-parse JSON"];
 
 struct Ui {
     /// Index into the sorted source list (tab selection); 0 if none.
@@ -45,6 +72,10 @@ struct Ui {
     search: String,
     show_help: bool,
     show_alerts: bool,
+    /// Active SSH add form, if open.
+    ssh_form: Option<SshForm>,
+    /// Settings modal open + selected row.
+    settings: Option<usize>,
     /// Per-source bookmarks: source name -> set of line numbers.
     bookmarks: HashMap<String, HashSet<usize>>,
     /// Rows available for log lines on the last draw (for paging).
@@ -62,6 +93,8 @@ impl Default for Ui {
             search: String::new(),
             show_help: false,
             show_alerts: false,
+            ssh_form: None,
+            settings: None,
             bookmarks: HashMap::new(),
             viewport: 20,
         }
@@ -233,12 +266,20 @@ fn find_match(
     if forward {
         hits.iter().find(|&&i| i > from).or(hits.first()).copied()
     } else {
-        hits.iter().rev().find(|&&i| i < from).or(hits.last()).copied()
+        hits.iter()
+            .rev()
+            .find(|&&i| i < from)
+            .or(hits.last())
+            .copied()
     }
 }
 
 /// The line under the cursor (its filtered-view index `ui.cursor`).
-fn cursor_line<'a>(core: &'a AppCore, ui: &Ui, selected: Option<&'a str>) -> Option<&'a Arc<DisplayLine>> {
+fn cursor_line<'a>(
+    core: &'a AppCore,
+    ui: &Ui,
+    selected: Option<&'a str>,
+) -> Option<&'a Arc<DisplayLine>> {
     passing(core, selected).nth(ui.cursor)
 }
 
@@ -267,7 +308,11 @@ fn find_bookmark(
     if forward {
         hits.iter().find(|&&i| i > from).or(hits.first()).copied()
     } else {
-        hits.iter().rev().find(|&&i| i < from).or(hits.last()).copied()
+        hits.iter()
+            .rev()
+            .find(|&&i| i < from)
+            .or(hits.last())
+            .copied()
     }
 }
 
@@ -346,6 +391,12 @@ fn draw(f: &mut Frame, core: &AppCore, ui: &mut Ui) {
     }
     if ui.show_alerts {
         draw_alerts(f, f.area(), core);
+    }
+    if let Some(sel) = ui.settings {
+        draw_settings(f, f.area(), core, sel);
+    }
+    if let Some(form) = &ui.ssh_form {
+        draw_ssh_form(f, f.area(), form);
     }
 }
 
@@ -639,6 +690,7 @@ fn draw_help(f: &mut Frame, area: Rect) {
         Line::from("  /  n  N        search, next / prev match"),
         Line::from("  b  ]  [        bookmark, next / prev bookmark"),
         Line::from("  y              copy line to clipboard"),
+        Line::from("  o / S          add SSH source / settings"),
         Line::from("  a              alerts        r reload   c clear"),
         Line::from("  ?              help          q / Esc  quit"),
     ];
@@ -655,7 +707,12 @@ fn draw_alerts(f: &mut Frame, area: Rect, core: &AppCore) {
     if core.pending_alerts.is_empty() {
         lines.push(Line::from("  (no alerts)"));
     } else {
-        for ev in core.pending_alerts.iter().rev().take(rect.height as usize - 2) {
+        for ev in core
+            .pending_alerts
+            .iter()
+            .rev()
+            .take(rect.height as usize - 2)
+        {
             let msg: String = ev.entry.message.chars().take(60).collect();
             lines.push(Line::from(vec![
                 Span::styled(
@@ -678,8 +735,145 @@ fn draw_alerts(f: &mut Frame, area: Rect, core: &AppCore) {
     );
 }
 
+fn draw_settings(f: &mut Frame, area: Rect, core: &AppCore, sel: usize) {
+    let rect = centered(area, 46, 7);
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, item) in SETTINGS_ITEMS.iter().enumerate() {
+        let on = match i {
+            0 => core.config.general.show_timestamps,
+            1 => core.config.general.auto_parse_json,
+            _ => false,
+        };
+        let style = if i == sel {
+            Style::default().fg(Color::Black).bg(Color::Cyan)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(
+            format!("  [{}] {} ", if on { 'x' } else { ' ' }, item),
+            style,
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  ↑/↓ move · Space toggle · Esc close",
+        Style::default().fg(Color::DarkGray),
+    )));
+    f.render_widget(ratatui::widgets::Clear, rect);
+    f.render_widget(
+        Paragraph::new(lines).block(Block::default().borders(Borders::ALL).title(" Settings ")),
+        rect,
+    );
+}
+
+fn draw_ssh_form(f: &mut Frame, area: Rect, form: &SshForm) {
+    let rect = centered(area, 62, 12);
+    let mut lines: Vec<Line> = Vec::new();
+    for (i, label) in SSH_LABELS.iter().enumerate() {
+        let focused = i == form.focus;
+        let label_style = if focused {
+            Style::default().fg(Color::Black).bg(Color::Cyan)
+        } else {
+            Style::default().fg(Color::Gray)
+        };
+        let mut spans = vec![
+            Span::styled(format!(" {:>19}: ", label), label_style),
+            Span::raw(form.fields[i].clone()),
+        ];
+        if focused {
+            spans.push(Span::styled(
+                "_",
+                Style::default().add_modifier(Modifier::SLOW_BLINK),
+            ));
+        }
+        lines.push(Line::from(spans));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Tab/↑↓ move · Enter connect · Esc cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+    f.render_widget(ratatui::widgets::Clear, rect);
+    f.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" Add SSH source "),
+        ),
+        rect,
+    );
+}
+
+fn handle_ssh_form(code: KeyCode, core: &mut AppCore, ui: &mut Ui) {
+    let n = SSH_LABELS.len();
+    let mut close = false;
+    let mut submit = false;
+    if let Some(form) = ui.ssh_form.as_mut() {
+        match code {
+            KeyCode::Esc => close = true,
+            KeyCode::Enter => submit = true,
+            KeyCode::Tab | KeyCode::Down => form.focus = (form.focus + 1) % n,
+            KeyCode::BackTab | KeyCode::Up => form.focus = (form.focus + n - 1) % n,
+            KeyCode::Backspace => {
+                form.fields[form.focus].pop();
+            }
+            KeyCode::Char(c) => form.fields[form.focus].push(c),
+            _ => {}
+        }
+    }
+    if submit {
+        if let Some(form) = ui.ssh_form.take() {
+            let f = form.fields;
+            let host = f[1].trim().to_string();
+            if !host.is_empty() {
+                let name = if f[0].trim().is_empty() {
+                    host.clone()
+                } else {
+                    f[0].trim().to_string()
+                };
+                let port = f[4].trim().parse::<u16>().ok();
+                let key = f[5].trim();
+                let key_path = (!key.is_empty()).then(|| PathBuf::from(key));
+                core.add_ssh_source(
+                    name,
+                    host,
+                    f[2].trim().to_string(),
+                    f[3].trim().to_string(),
+                    port,
+                    key_path,
+                    None,
+                );
+            }
+        }
+    } else if close {
+        ui.ssh_form = None;
+    }
+}
+
 /// Handle a key. Returns true if the app should quit.
 fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui) -> bool {
+    // Modal forms capture all input.
+    if ui.ssh_form.is_some() {
+        handle_ssh_form(code, core, ui);
+        return false;
+    }
+    if let Some(sel) = ui.settings {
+        match code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Char('S') => ui.settings = None,
+            KeyCode::Up | KeyCode::Char('k') => ui.settings = Some(sel.saturating_sub(1)),
+            KeyCode::Down | KeyCode::Char('j') => {
+                ui.settings = Some((sel + 1).min(SETTINGS_ITEMS.len() - 1))
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => match sel {
+                0 => core.config.general.show_timestamps = !core.config.general.show_timestamps,
+                1 => core.config.general.auto_parse_json = !core.config.general.auto_parse_json,
+                _ => {}
+            },
+            _ => {}
+        }
+        return false;
+    }
+
     match ui.mode {
         Mode::Filter => {
             match code {
@@ -757,8 +951,7 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
         KeyCode::Char('n') | KeyCode::Char('N') => {
             let selected = current_source(core, ui);
             let forward = matches!(code, KeyCode::Char('n'));
-            if let Some(idx) =
-                find_match(core, selected.as_deref(), &ui.search, ui.cursor, forward)
+            if let Some(idx) = find_match(core, selected.as_deref(), &ui.search, ui.cursor, forward)
             {
                 ui.follow = false;
                 ui.cursor = idx;
@@ -778,13 +971,9 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
         KeyCode::Char(']') | KeyCode::Char('[') => {
             let selected = current_source(core, ui);
             let forward = matches!(code, KeyCode::Char(']'));
-            if let Some(idx) = find_bookmark(
-                core,
-                selected.as_deref(),
-                &ui.bookmarks,
-                ui.cursor,
-                forward,
-            ) {
+            if let Some(idx) =
+                find_bookmark(core, selected.as_deref(), &ui.bookmarks, ui.cursor, forward)
+            {
                 ui.follow = false;
                 ui.cursor = idx;
             }
@@ -796,6 +985,8 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
             }
         }
         KeyCode::Char('a') => ui.show_alerts = !ui.show_alerts,
+        KeyCode::Char('o') => ui.ssh_form = Some(SshForm::new()),
+        KeyCode::Char('S') => ui.settings = Some(0),
         KeyCode::Tab => {
             let n = core.source_infos.len().max(1);
             ui.tab = (ui.tab + 1) % n;
