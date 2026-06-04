@@ -376,6 +376,12 @@ fn draw(f: &mut Frame, core: &AppCore, ui: &mut Ui) {
     if ui.follow {
         ui.cursor = total.saturating_sub(1);
         ui.scroll = max_first;
+    } else if total > 0 && ui.cursor >= total - 1 {
+        // Reaching the bottom re-engages follow, so scrolling back down resumes
+        // auto-tailing without having to hit Space/G.
+        ui.follow = true;
+        ui.cursor = total - 1;
+        ui.scroll = max_first;
     } else {
         // Keep the cursor on screen.
         ui.cursor = ui.cursor.min(total.saturating_sub(1));
@@ -649,7 +655,20 @@ fn draw_status(f: &mut Frame, area: Rect, core: &AppCore, ui: &Ui, shown: usize)
     }
 
     let mb = core.total_bytes() as f64 / (1024.0 * 1024.0);
-    let follow = if ui.follow { "FOLLOW" } else { " PAUSE" };
+    // It tails live by default. The only time we surface state is when the user
+    // has deliberately scrolled up to read back — then we show how to return to
+    // live. No "pause"/"follow" toggle to manage.
+    let (follow_label, follow_style) = if ui.follow {
+        (
+            " ● LIVE ".to_string(),
+            Style::default().bg(Color::Green).fg(Color::Black),
+        )
+    } else {
+        (
+            " ↑ history — End → live ".to_string(),
+            Style::default().bg(Color::Yellow).fg(Color::Black),
+        )
+    };
     let search = if ui.search.is_empty() {
         String::new()
     } else {
@@ -657,10 +676,7 @@ fn draw_status(f: &mut Frame, area: Rect, core: &AppCore, ui: &Ui, shown: usize)
     };
 
     let mut spans = vec![
-        Span::styled(
-            format!(" {} ", follow),
-            Style::default().bg(Color::Blue).fg(Color::White),
-        ),
+        Span::styled(follow_label, follow_style),
         Span::raw(format!(
             " {} shown / {} total ",
             shown, core.log_state.total_lines_read
@@ -700,8 +716,8 @@ fn draw_help(f: &mut Frame, area: Rect) {
     let text = vec![
         Line::from("  j/k  ↓/↑       move cursor"),
         Line::from("  Ctrl+d/u       half page     PgDn/PgUp  page"),
-        Line::from("  g / G          top / bottom  (G = follow)"),
-        Line::from("  Space          toggle follow (pause/resume)"),
+        Line::from("  g              jump to top (scroll back through history)"),
+        Line::from("  G / End / Space  jump to the newest line (resume live tail)"),
         Line::from("  Tab / S-Tab    switch source"),
         Line::from("  1..6           toggle level  T D I W E F"),
         Line::from("  f              filter (regex/substring)"),
@@ -965,7 +981,7 @@ fn handle_key(code: KeyCode, mods: KeyModifiers, core: &mut AppCore, ui: &mut Ui
             core.log_state.clear();
             ui.scroll = 0;
         }
-        KeyCode::Char(' ') => ui.follow = !ui.follow,
+        KeyCode::Char(' ') => ui.follow = true,
         KeyCode::Char('j') | KeyCode::Down => cursor_move(ui, 1),
         KeyCode::Char('k') | KeyCode::Up => cursor_move(ui, -1),
         KeyCode::Char('d') if mods.contains(KeyModifiers::CONTROL) => {
