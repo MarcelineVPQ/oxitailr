@@ -57,7 +57,7 @@ impl PlainParser {
         LEVEL_PATTERN
             .captures(line)
             .and_then(|c| c.get(1))
-            .and_then(|m| LogLevel::from_str(m.as_str()))
+            .and_then(|m| LogLevel::parse(m.as_str()))
     }
 }
 

@@ -1,12 +1,19 @@
-[package]
-name = "oxitailr"
+[workspace]
+members = ["crates/oxitailr-core", "crates/oxitailr"]
+resolver = "2"
+
+[workspace.package]
 version = "0.3.4"
 edition = "2021"
-description = "A fast, low-resource terminal log viewer / live tailer"
 authors = ["Oxitailr Contributors"]
 license = "MIT"
 
-[dependencies]
+# One version of each dependency for every crate in the workspace; each crate
+# opts in with `name.workspace = true`.
+[workspace.dependencies]
+# The engine library (crates/oxitailr-core)
+oxitailr-core = { path = "crates/oxitailr-core" }
+
 # Async runtime
 tokio = { version = "1.35", features = ["full"] }
 futures = "0.3"
@@ -65,5 +72,5 @@ dirs = "5.0"
 aes-gcm = "0.10"
 base64 = "0.22"
 
-[dev-dependencies]
+# Tests
 tempfile = "3.10"

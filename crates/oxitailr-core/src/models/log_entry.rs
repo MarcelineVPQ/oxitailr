@@ -16,7 +16,8 @@ pub enum LogLevel {
 }
 
 impl LogLevel {
-    pub fn from_str(s: &str) -> Option<Self> {
+    /// The level a log line's level word names (`WARN`, `warning`, `CRIT`...), if any.
+    pub fn parse(s: &str) -> Option<Self> {
         match s.to_uppercase().as_str() {
             "TRACE" => Some(LogLevel::Trace),
             "DEBUG" => Some(LogLevel::Debug),

@@ -14,6 +14,20 @@ with local-file and SSH log sources.
 > **historical** — that layer was removed. Some features (SSH UI, bookmarks, alerts UI, settings)
 > are backend-ready but not yet wired into the TUI (`#![allow(dead_code)]` covers them meanwhile).
 
+## Workspace layout
+
+The repo is a Cargo workspace (since the 0.4 cycle):
+
+- `crates/oxitailr-core/` — the engine, a library: `source/`, `parser/`, `filter/`, `alert/`,
+  `config/`, `state/`, `models/`, `credentials.rs`, and `app.rs` (`AppCore`). Its tests,
+  including `tests/integration_tests.rs`, live here.
+- `crates/oxitailr/` — the terminal app: `main.rs` (CLI) and `tui.rs`. It depends on
+  `oxitailr-core` and builds the `oxitailr` binary (still `target/release/oxitailr`).
+
+Shared dependency versions live in the root `Cargo.toml` under `[workspace.dependencies]`;
+each crate opts in with `name.workspace = true`. Paths in the Architecture section below are
+relative to `crates/oxitailr-core/src/` unless they name `main.rs`/`tui.rs`.
+
 ## Commands
 
 ```bash

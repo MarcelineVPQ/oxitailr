@@ -1,39 +1,15 @@
-//! Oxitailr — a terminal log viewer / live tailer.
-//
-// The backend (SSH credentials, session persistence, alert actions, the full
-// filter rule set) is feature-complete but not all of it is wired into the TUI
-// yet — that lands in later phases. Allow dead code crate-wide during the
-// rewrite rather than deleting working backend modules.
-#![allow(dead_code)]
+//! Oxitailr — a terminal log viewer / live tailer: the terminal front end on
+//! top of `oxitailr-core`, which holds the engine.
 
-mod alert;
-mod app;
-mod config;
-mod credentials;
-mod filter;
-mod models;
-mod parser;
-mod source;
-mod state;
 mod tui;
 
 use anyhow::Result;
 use clap::Parser as ClapParser;
-use config::AppConfig;
 use glob::glob;
+use oxitailr_core::app;
+use oxitailr_core::config::{self, AppConfig};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-/// Application theme (kept for config compatibility; the TUI follows the
-/// terminal's own colors).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Theme {
-    Light,
-    Dark,
-    #[default]
-    System,
-}
 
 #[derive(ClapParser)]
 #[command(name = "oxitailr")]

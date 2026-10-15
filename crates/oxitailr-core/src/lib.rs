@@ -1,0 +1,33 @@
+//! oxitailr-core — the engine behind oxitailr.
+//!
+//! Everything that isn't a screen lives here: log sources (local files with
+//! rotation detection, SSH), parsers, the filter engine and highlight rules,
+//! alerts, config and session persistence, and `AppCore`, which ties them
+//! together behind channels. Front ends (the terminal app today, the desktop
+//! app and the headless agent next) drive an `AppCore` and draw what it emits.
+//
+// The backend (SSH credentials, session persistence, alert actions, the full
+// filter rule set) is feature-complete but not all of it is wired into a front
+// end yet. Allow dead code crate-wide rather than deleting working modules.
+#![allow(dead_code)]
+
+pub mod alert;
+pub mod app;
+pub mod config;
+pub mod credentials;
+pub mod filter;
+pub mod models;
+pub mod parser;
+pub mod source;
+pub mod state;
+
+/// Application theme (kept for config compatibility; the TUI follows the
+/// terminal's own colors).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    Light,
+    Dark,
+    #[default]
+    System,
+}
