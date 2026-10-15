@@ -1,0 +1,42 @@
+/* Palette file: log level and search colors (light, dark, system-dark).
+ * The terminal app's choices: trace dim, debug grey, info cyan, warn yellow,
+ * error red, fatal magenta — tuned per theme for contrast on the page. */
+:root {
+  --lvl-trace: #94a3b8;
+  --lvl-debug: #64748b;
+  --lvl-info: #0e7490;
+  --lvl-warn: #a16207;
+  --lvl-error: #dc2626;
+  --lvl-fatal: #a21caf;
+  --search-hit-bg: #fde047;
+  --search-hit-text: #0f172a;
+  --row-cursor-bg: #e0f2fe;
+  --mark-on: #ca8a04;
+}
+html[data-theme="dark"] {
+  --lvl-trace: #64748b;
+  --lvl-debug: #94a3b8;
+  --lvl-info: #22d3ee;
+  --lvl-warn: #facc15;
+  --lvl-error: #f87171;
+  --lvl-fatal: #e879f9;
+  --search-hit-bg: #facc15;
+  --search-hit-text: #0f172a;
+  --row-cursor-bg: #1e3a5f;
+  --mark-on: #facc15;
+}
+@media (prefers-color-scheme: dark) {
+  html[data-theme="system"],
+  html:not([data-theme]) {
+    --lvl-trace: #64748b;
+    --lvl-debug: #94a3b8;
+    --lvl-info: #22d3ee;
+    --lvl-warn: #facc15;
+    --lvl-error: #f87171;
+    --lvl-fatal: #e879f9;
+    --search-hit-bg: #facc15;
+    --search-hit-text: #0f172a;
+    --row-cursor-bg: #1e3a5f;
+    --mark-on: #facc15;
+  }
+}

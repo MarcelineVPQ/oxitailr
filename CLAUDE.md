@@ -23,6 +23,31 @@ The repo is a Cargo workspace (since the 0.4 cycle):
   including `tests/integration_tests.rs`, live here.
 - `crates/oxitailr/` — the terminal app: `main.rs` (CLI) and `tui.rs`. It depends on
   `oxitailr-core` and builds the `oxitailr` binary (still `target/release/oxitailr`).
+- `desktop/` — the desktop app (Tauri 2). The front end (React + Vite + TypeScript) is in
+  `desktop/src`; the Tauri crate `oxitailr-desktop` is in `desktop/src-tauri`, with the
+  commands in `src-tauri/src/main.rs` and the view logic in `src-tauri/src/view.rs`.
+  `desktop/src/api.ts` is the **only** place the front end calls `invoke`. The crate is a
+  workspace member but not a default member, so plain `cargo build/test/clippy` at the root
+  skip it (it needs WebKitGTK / WebView2); `cargo fmt` at the root does format it.
+
+Desktop commands:
+
+```bash
+cd desktop && npm ci && npm run tauri dev       # run the desktop app
+cd desktop && npm run typecheck                 # tsc --noEmit
+cd desktop && npm run build                     # front end into desktop/dist (needed before cargo)
+cargo clippy -p oxitailr-desktop -- -D warnings
+cargo test -p oxitailr-desktop
+```
+
+Desktop design rules:
+
+- Only the rows on screen are fetched from the back end; never ship the whole buffer.
+- The back end notifies the front end "changed" at most 10 times a second, and nothing
+  ticks while idle (no polling timers).
+- No literal colors outside the palette files `desktop/src/tokens.css` and `desktop/src/levels.css`; everything else uses their tokens (config highlight colors are the one data-driven exception).
+- Dependencies are pinned exactly (`desktop/.npmrc` has `save-exact=true`) and kept on the
+  latest releases.
 
 Shared dependency versions live in the root `Cargo.toml` under `[workspace.dependencies]`;
 each crate opts in with `name.workspace = true`. Paths in the Architecture section below are
@@ -51,7 +76,9 @@ cargo clippy -- -D warnings
 ```
 
 CI (`.github/workflows/ci.yml`) runs `cargo test`, `cargo fmt -- --check`, and
-`cargo clippy -- -D warnings`. Match formatting and keep clippy clean before pushing.
+`cargo clippy -- -D warnings` for the default members, plus a `desktop` job (npm typecheck +
+build, then fmt/clippy/test for `-p oxitailr-desktop`) and a `desktop-windows` job
+(`npx tauri build --no-bundle`). Match formatting and keep clippy clean before pushing.
 
 ## Architecture
 

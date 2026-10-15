@@ -10,7 +10,6 @@ license.workspace = true
 tokio.workspace = true
 async-trait.workspace = true
 argon2.workspace = true
-rand.workspace = true
 shlex.workspace = true
 russh.workspace = true
 russh-keys.workspace = true
@@ -27,6 +26,19 @@ thiserror.workspace = true
 dirs.workspace = true
 aes-gcm.workspace = true
 base64.workspace = true
+keyring-core.workspace = true
+secrecy.workspace = true
+zeroize.workspace = true
+
+# OS keychain backends for the secret store, one per platform.
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store.workspace = true
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+zbus-secret-service-keyring-store.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true

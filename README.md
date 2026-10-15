@@ -97,6 +97,26 @@ Inside the app: press **`?`** for the full key list, **`q`** to quit. It tails l
 | `?` | Help |
 | `q` / `Esc` | Quit |
 
+## Desktop app (preview)
+
+A desktop app is on the way: the **same engine, in a window**. Everything the terminal app does by key has a GUI control — a left nav rail, one tab per source, level chips, filter, search, follow, bookmarks, drag-and-drop or an Open dialog, and a light / dark / system theme — and every key from the table above still works.
+
+**Status:** preview. There are no downloads yet; build it from source.
+
+Prerequisites: a Rust toolchain and **Node 26**. On Linux, also the WebKitGTK build dependencies:
+```bash
+sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+  librsvg2-dev libxdo-dev libssl-dev build-essential pkg-config
+```
+
+Then:
+```bash
+cd desktop
+npm ci
+npm run tauri dev      # run it
+npm run tauri build    # release build (installers under target/release/bundle/)
+```
+
 ## Configuration
 
 Config lives at `~/.config/oxitailr/config.toml` (see `config.example.toml` for the full schema). The TUI reads: `general.{buffer_size, show_timestamps, auto_parse_json, show_source, remember_last_session}`, the `[[sources]]` list (with `enabled` / `auto_open`), `[filters.<name>]` presets, `[[highlights]]` rules, and `[[alerts]]`. Old GUI-only keys — theme, fonts, line spacing, `wrap_lines` — are accepted but ignored.

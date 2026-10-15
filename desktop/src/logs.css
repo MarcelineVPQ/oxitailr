@@ -1,0 +1,392 @@
+/* The log view (pages/LogsPage.tsx). Colors are tokens only: tokens.css,
+ * shell.css (.dk) and levels.css. */
+@import "./levels.css";
+
+.logs {
+  display: grid;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+}
+.logs[hidden] {
+  display: none;
+}
+
+/* ---- toolbar ---- */
+.logs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px var(--dk-pad);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-panel);
+}
+.logs-spacer {
+  flex: 1;
+}
+.dk-btn.icon {
+  position: relative;
+  padding: 0 7px;
+}
+.dk-btn.on {
+  border-color: var(--dk-sel-border);
+  background: var(--dk-sel-bg);
+  color: var(--dk-sel-text);
+  font-weight: 600;
+}
+.dk-btn.alerting {
+  border-color: var(--status-warn);
+  color: var(--text-warn);
+}
+.logs-count {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--status-warn);
+  color: var(--on-status);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+
+.logs-levels {
+  display: inline-flex;
+  gap: 3px;
+}
+.lvl-chip {
+  height: 24px;
+  padding: 0 7px;
+  border: 1px solid var(--border-input);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0.55;
+  text-decoration: line-through;
+}
+.lvl-chip.on {
+  opacity: 1;
+  text-decoration: none;
+}
+.lvl-chip.lvl-trace.on {
+  color: var(--lvl-trace);
+}
+.lvl-chip.lvl-debug.on {
+  color: var(--lvl-debug);
+}
+.lvl-chip.lvl-info.on {
+  color: var(--lvl-info);
+}
+.lvl-chip.lvl-warn.on {
+  color: var(--lvl-warn);
+}
+.lvl-chip.lvl-error.on {
+  color: var(--lvl-error);
+}
+.lvl-chip.lvl-fatal.on {
+  color: var(--lvl-fatal);
+}
+
+.logs-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-input);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text-muted);
+}
+.logs-field:focus-within {
+  border-color: var(--dk-focus);
+}
+.logs-field.invalid {
+  border-color: var(--border-validation);
+}
+.logs-field-label {
+  font-size: var(--dk-small);
+}
+.logs-field input {
+  width: 170px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.logs-field-clear {
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+.logs-preset {
+  height: 26px;
+  border: 1px solid var(--border-input);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12px;
+}
+
+/* ---- source tabs ---- */
+.logs-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 4px var(--dk-pad) 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-panel);
+}
+.logs-tab {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: 5px 5px 0 0;
+  color: var(--text-soft);
+  font-size: 12px;
+  white-space: nowrap;
+}
+button.logs-tab,
+.logs-tab-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+button.logs-tab {
+  border-radius: 5px 5px 0 0;
+}
+.logs-tab.on {
+  border-color: var(--border-default);
+  background: var(--bg-page);
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.logs-tab-close {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+}
+.logs-tab-close:hover {
+  background: var(--bg-segment);
+  color: var(--text-strong);
+}
+.src-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.src-dot.connected {
+  background: var(--status-good);
+}
+.src-dot.connecting {
+  background: var(--status-warn);
+}
+.src-dot.error {
+  background: var(--status-bad);
+}
+
+/* ---- alerts panel ---- */
+.logs-alerts {
+  max-height: 30vh;
+  overflow: auto;
+  padding: 8px var(--dk-pad);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--notice-warn-bg);
+  color: var(--notice-warn-text);
+  font-size: 12px;
+}
+.logs-alerts-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.logs-alerts ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-family: var(--font-mono);
+}
+.logs-alerts li {
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.logs-alert-src {
+  opacity: 0.75;
+}
+
+/* ---- the list ---- */
+.logs-list {
+  position: relative;
+  min-height: 0;
+  overflow: auto;
+  background: var(--bg-page);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  outline: none;
+}
+.logs-spacer-y {
+  position: relative;
+  min-width: 100%;
+}
+.log-row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 20px;
+  padding-right: var(--dk-pad);
+  white-space: pre;
+  color: var(--text-body);
+  cursor: default;
+}
+.log-row:hover {
+  background: var(--bg-segment);
+}
+.log-row.cursor {
+  background: var(--row-cursor-bg);
+}
+.log-mark {
+  flex: 0 0 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+.log-row:hover .log-mark {
+  color: var(--text-muted);
+}
+.log-mark.on,
+.log-row:hover .log-mark.on {
+  color: var(--mark-on);
+}
+.log-n {
+  flex: 0 0 auto;
+  min-width: 6ch;
+  color: var(--text-muted);
+  text-align: right;
+}
+.log-src {
+  flex: 0 0 auto;
+  max-width: 18ch;
+  overflow: hidden;
+  color: var(--success);
+  text-overflow: ellipsis;
+}
+.log-ts {
+  flex: 0 0 auto;
+  color: var(--text-muted);
+}
+.log-lvl {
+  flex: 0 0 5ch;
+  font-weight: 700;
+  text-align: right;
+}
+.log-text {
+  flex: 1 1 auto;
+}
+.log-row.lvl-trace .log-lvl,
+.log-row.lvl-trace .log-text {
+  color: var(--lvl-trace);
+}
+.log-row.lvl-debug .log-lvl,
+.log-row.lvl-debug .log-text {
+  color: var(--lvl-debug);
+}
+.log-row.lvl-info .log-lvl {
+  color: var(--lvl-info);
+}
+.log-row.lvl-warn .log-lvl,
+.log-row.lvl-warn .log-text {
+  color: var(--lvl-warn);
+}
+.log-row.lvl-error .log-lvl,
+.log-row.lvl-error .log-text {
+  color: var(--lvl-error);
+}
+.log-row.lvl-fatal .log-lvl,
+.log-row.lvl-fatal .log-text {
+  color: var(--lvl-fatal);
+  font-weight: 600;
+}
+.log-text mark {
+  border-radius: 2px;
+  background: var(--search-hit-bg);
+  color: var(--search-hit-text);
+}
+
+.logs-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 6px;
+  height: 100%;
+  color: var(--text-muted);
+  font-family: var(--font-body);
+  font-size: 13px;
+}
+.logs-empty p {
+  margin: 0;
+}
+.logs-empty-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--dk-small);
+}
+
+/* ---- status bar ---- */
+.logs-status {
+  display: flex;
+  gap: 14px;
+  padding: 4px var(--dk-pad);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  color: var(--text-muted);
+  font-size: var(--dk-small);
+  font-variant-numeric: tabular-nums;
+}
+.logs-status-warn {
+  color: var(--text-warn);
+}
+.logs-live.on {
+  color: var(--status-good);
+  font-weight: 600;
+}

@@ -1,0 +1,607 @@
+/* The shell: layout, controls, the navigation rail and the plain pages
+ * (Settings, About). Carried over from the DS5 configurator's desktop.css;
+ * the rail sits on the LEFT here. No literal colors: the .dk tokens below are
+ * built from tokens.css (the palette file). */
+
+/* Minimized or hidden in the tray: every animation holds still. A running
+   animation keeps the compositor drawing frames nobody sees, so the app would
+   keep the CPU busy in the background. */
+:root[data-window-hidden] *,
+:root[data-window-hidden] *::before,
+:root[data-window-hidden] *::after {
+  animation-play-state: paused !important;
+}
+
+/* ---- Root and theme tokens ---- */
+.dk {
+  /* Native controls (checkboxes, radios, sliders, progress) take the theme's
+     accent everywhere; set once here, inherited, never per control. */
+  accent-color: var(--dk-accent);
+  --dk-gap: 10px;
+  --dk-pad: 12px;
+  --dk-row-h: 30px;
+  --dk-font: 13px;
+  --dk-small: 11.5px;
+  --dk-radius: 6px;
+
+  /* Selection / action colors (light). A deeper green than the palette's
+     accent so selected states read clearly on white. */
+  --dk-accent: var(--accent-hover);
+  --dk-accent-text: var(--dk-accent);
+  --dk-accent-hover: color-mix(in srgb, var(--accent-hover) 80%, var(--text-strong));
+  --dk-on-accent: var(--text-on-primary);
+  --dk-sel-bg: var(--bg-accent-hover);
+  --dk-sel-border: var(--accent);
+  --dk-sel-text: var(--text-on-tint);
+  --dk-disabled-bg: var(--border-default);
+  --dk-disabled-text: color-mix(in srgb, var(--text-soft) 60%, var(--text-muted));
+  --dk-focus: var(--accent-hover);
+  --dk-chip-ok-bg: var(--accent-hover);
+  --dk-chip-ok-text: var(--text-on-primary);
+  /* What a shadow is made of (dark in both themes). */
+  --dk-shade: var(--text-strong);
+
+  position: fixed;
+  inset: 0;
+  display: grid;
+  font-size: var(--dk-font);
+  line-height: 1.35;
+  background: var(--bg-page);
+  color: var(--text-body);
+}
+
+html[data-theme="dark"] .dk {
+  --dk-accent: var(--accent);
+  --dk-accent-hover: var(--accent-border);
+  --dk-on-accent: var(--bg-accent-tint);
+  --dk-sel-bg: var(--bg-accent-tint);
+  --dk-sel-border: var(--accent-border);
+  --dk-disabled-bg: var(--bg-segment);
+  --dk-disabled-text: var(--text-muted);
+  --dk-focus: var(--accent-hover);
+  --dk-chip-ok-bg: var(--bg-accent-tint);
+  --dk-chip-ok-text: var(--text-on-tint);
+  --dk-shade: var(--on-status);
+}
+@media (prefers-color-scheme: dark) {
+  html[data-theme="system"] .dk,
+  html:not([data-theme]) .dk {
+    --dk-accent: var(--accent);
+    --dk-accent-hover: var(--accent-border);
+    --dk-on-accent: var(--bg-accent-tint);
+    --dk-sel-bg: var(--bg-accent-tint);
+    --dk-sel-border: var(--accent-border);
+    --dk-disabled-bg: var(--bg-segment);
+    --dk-disabled-text: var(--text-muted);
+    --dk-focus: var(--accent-hover);
+    --dk-chip-ok-bg: var(--bg-accent-tint);
+    --dk-chip-ok-text: var(--text-on-tint);
+    --dk-shade: var(--on-status);
+  }
+}
+
+/* Keyboard focus: one visible ring in the theme color (Chromium's default is
+ * the platform accent). */
+.dk :focus {
+  outline: none;
+}
+.dk :focus-visible {
+  outline: 2px solid var(--dk-focus);
+  outline-offset: 1px;
+}
+
+/* ---- Layout: rail | page ---- */
+.dk.dk-one {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+.dk-main {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+/* A page kept mounted but not shown (the Logs page) stays out of the layout,
+   whatever display its own class sets. */
+.dk-main > [hidden] {
+  display: none !important;
+}
+
+/* ---- Chips ---- */
+.dk-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border-default);
+  background: var(--bg-inset);
+  color: var(--text-soft);
+  font-size: var(--dk-small);
+  white-space: nowrap;
+}
+.dk-chip .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.dk-chip.ok {
+  border-color: var(--dk-sel-border);
+  color: var(--dk-chip-ok-text);
+  background: var(--dk-chip-ok-bg);
+  font-weight: 600;
+}
+.dk-chip.ok .dot {
+  background: currentColor;
+}
+.dk-chip.warn .dot {
+  background: var(--status-warn);
+}
+.dk-chip.bad .dot {
+  background: var(--status-bad);
+}
+
+/* ---- Settings rows (controls.tsx Row) ---- */
+.dk-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 40%) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  min-height: var(--dk-row-h);
+  border-top: 1px solid var(--border-subtle);
+}
+.dk-row:first-of-type {
+  border-top: 0;
+}
+.dk-row.wide {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+.dk-row.has-sub {
+  padding: 6px 0;
+}
+.dk-row > .dk-label {
+  color: var(--text-soft);
+}
+.dk-row .dk-sub {
+  display: block;
+  color: var(--text-muted);
+  font-size: var(--dk-small);
+}
+.dk-ctl {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+/* ---- Segmented (controls.tsx Segmented) ---- */
+.dk-seg {
+  display: inline-flex;
+  border: 1px solid var(--border-input);
+  border-radius: 5px;
+  overflow: hidden;
+}
+.dk-seg button {
+  height: 24px;
+  padding: 0 9px;
+  white-space: nowrap;
+  border: 0;
+  border-left: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-soft);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.dk-seg button:first-child {
+  border-left: 0;
+}
+.dk-seg button:hover:not(:disabled):not(.on) {
+  background: var(--bg-segment);
+}
+.dk-seg button.on {
+  background: var(--dk-accent);
+  color: var(--dk-on-accent);
+  font-weight: 600;
+}
+.dk-seg button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ---- Toggle (controls.tsx Toggle) ---- */
+.dk-toggle {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--switch-off-bg);
+  cursor: pointer;
+  flex: none;
+}
+.dk-toggle::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--switch-knob-bg);
+  transition: transform var(--t-fast);
+}
+.dk-toggle.on {
+  background: var(--dk-accent);
+}
+.dk-toggle.on::after {
+  transform: translateX(16px);
+}
+.dk-toggle:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+/* ---- Buttons ---- */
+.dk-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--border-input);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.dk-btn:hover:not(:disabled) {
+  border-color: var(--border-soft);
+  background: var(--bg-segment);
+}
+.dk-btn.primary {
+  background: var(--dk-accent);
+  border-color: var(--dk-accent);
+  color: var(--dk-on-accent);
+  font-weight: 600;
+}
+.dk-btn.primary:hover:not(:disabled) {
+  background: var(--dk-accent-hover);
+  border-color: var(--dk-accent-hover);
+}
+.dk-btn:disabled,
+.dk-btn.primary:disabled {
+  background: var(--dk-disabled-bg);
+  border-color: var(--dk-disabled-bg);
+  color: var(--dk-disabled-text);
+  cursor: default;
+}
+.dk-btn.danger {
+  color: var(--text-error);
+  border-color: var(--notice-error-bd);
+}
+.dk-btn.danger:disabled {
+  color: var(--dk-disabled-text);
+  border-color: var(--dk-disabled-bg);
+}
+/* A toggled button (aria-pressed): tinted like the rail's active item. */
+.dk-btn[aria-pressed="true"] {
+  background: var(--dk-sel-bg);
+  border-color: var(--dk-sel-border);
+  color: var(--dk-sel-text);
+}
+
+/* ---- Navigation rail (AppRail.tsx), on the left ----
+   The slot reserves the collapsed width; unpinned, the rail expands over the
+   page (rightwards) on hover / keyboard focus; pinned it takes its full width. */
+.rail-slot {
+  --rail-w-collapsed: 52px;
+  --rail-w-expanded: 196px;
+  position: relative;
+  width: var(--rail-w-collapsed);
+  transition: width 0.18s ease;
+  z-index: 30;
+}
+.rail-slot.pinned {
+  width: var(--rail-w-expanded);
+}
+.app-rail {
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--rail-w-collapsed);
+  border-right: 1px solid var(--border-default);
+  background: var(--bg-panel);
+  overflow: hidden;
+  transition:
+    width 0.18s ease,
+    box-shadow 0.18s ease;
+}
+.rail-slot.pinned .app-rail,
+.app-rail:not(.picked):not(.locked):hover,
+.app-rail:not(.locked):has(:focus-visible) {
+  width: var(--rail-w-expanded);
+}
+.rail-slot:not(.pinned) .app-rail:not(.picked):not(.locked):hover,
+.rail-slot:not(.pinned) .app-rail:not(.locked):has(:focus-visible) {
+  box-shadow: 8px 0 24px color-mix(in srgb, var(--dk-shade) 30%, transparent);
+}
+.rail-nav {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+  min-height: 0;
+  padding: 8px 6px;
+  overflow: hidden auto;
+}
+.rail-footer {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border-top: 1px solid var(--border-default);
+}
+.rail-link,
+.rail-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 36px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--dk-radius);
+  background: transparent;
+  color: var(--text-soft);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.rail-status {
+  cursor: default;
+  font-size: var(--dk-small);
+}
+.rail-link:hover {
+  background: var(--bg-segment);
+  color: var(--text-strong);
+}
+.rail-link:focus-visible {
+  outline: 2px solid var(--dk-focus);
+  outline-offset: -2px;
+}
+/* Active: tinted, with the accent bar on the inner (right) edge. */
+.rail-link.active {
+  background: var(--dk-sel-bg);
+  color: var(--dk-sel-text);
+  font-weight: 600;
+  box-shadow: inset -3px 0 0 var(--dk-sel-border);
+}
+.rail-ic {
+  position: relative;
+  display: grid;
+  flex: 0 0 20px;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+}
+.rail-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.rail-slot.pinned .rail-label,
+.app-rail:not(.picked):not(.locked):hover .rail-label,
+.app-rail:not(.locked):has(:focus-visible) .rail-label {
+  opacity: 1;
+}
+/* The lock in the rail's bottom corner: small, under the icons' column. */
+.rail-lock {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin: 2px 0 0 7px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+.rail-lock[aria-pressed="true"] {
+  color: var(--text-strong);
+}
+.rail-lock:hover {
+  background: var(--bg-segment);
+  color: var(--text-strong);
+}
+.rail-lock:focus-visible {
+  outline: 2px solid var(--dk-focus);
+  outline-offset: -2px;
+}
+.rail-divider {
+  height: 1px;
+  margin: 6px 4px;
+  background: var(--border-default);
+}
+.rail-badge {
+  position: absolute;
+  top: -6px;
+  right: -8px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--status-warn);
+  color: var(--on-status);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 15px;
+  text-align: center;
+}
+.rail-dot {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: var(--on-status);
+  font-size: 10px;
+  font-weight: 700;
+}
+.rail-status.ok .rail-dot {
+  background: var(--status-good);
+}
+.rail-status.warn .rail-dot {
+  background: var(--status-warn);
+}
+.rail-status.ok .rail-label {
+  color: var(--text-strong);
+}
+.rail-status-text {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.rail-status-text > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rail-status-sub {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+/* Narrow windows: a pinned rail floats over the page instead of taking room. */
+@media (max-width: 900px) {
+  .rail-slot.pinned {
+    width: var(--rail-w-collapsed);
+  }
+  .rail-slot.pinned .app-rail {
+    width: var(--rail-w-collapsed);
+  }
+  .rail-slot.pinned .rail-label {
+    opacity: 0;
+  }
+  .rail-slot .app-rail:not(.picked):not(.locked):hover,
+  .rail-slot .app-rail:not(.locked):has(:focus-visible) {
+    width: var(--rail-w-expanded);
+    box-shadow: 8px 0 24px color-mix(in srgb, var(--dk-shade) 30%, transparent);
+  }
+  .rail-slot .app-rail:not(.picked):not(.locked):hover .rail-label,
+  .rail-slot .app-rail:not(.locked):has(:focus-visible) .rail-label {
+    opacity: 1;
+  }
+}
+
+/* ---- Plain pages (Settings, About) ----
+   <section class="page"> → <header class="page-head"><h1/><p class="page-sub"/></header>
+   then <div class="page-section"><h2/>rows…</div>. The page scrolls; its
+   content keeps a readable width. */
+.page {
+  min-height: 0;
+  overflow: hidden auto;
+  padding: 20px 24px 32px;
+  font-size: var(--dk-font);
+}
+.page > * {
+  max-width: 640px;
+}
+.page-head {
+  margin-bottom: 14px;
+}
+.page-head h1 {
+  margin: 0;
+  color: var(--text-strong);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.page-sub {
+  margin: 4px 0 0;
+  color: var(--text-muted);
+}
+.page-section {
+  margin-top: 18px;
+  padding: 4px 14px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-panel);
+}
+.page-section h2 {
+  margin: 10px 0 4px;
+  color: var(--text-eyebrow);
+  font-family: var(--font-display);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.page-code {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-inset);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.page a {
+  color: var(--dk-accent-text);
+}
+
+/* About */
+.about-version {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.about-lede {
+  margin: 0 0 6px;
+  color: var(--text-body);
+  font-size: 14px;
+}
+.about-keys {
+  width: 100%;
+  margin: 2px 0 8px;
+  border-collapse: collapse;
+}
+.about-keys td {
+  padding: 5px 0;
+  border-top: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.about-keys tr:first-child td {
+  border-top: 0;
+}
+.about-keys td:first-child {
+  width: 120px;
+}
+.about-keys kbd {
+  display: inline-block;
+  min-width: 22px;
+  padding: 1px 6px;
+  border: 1px solid var(--border-input);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--bg-input);
+  color: var(--text-strong);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-align: center;
+}

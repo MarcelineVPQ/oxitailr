@@ -7,6 +7,7 @@ use crate::config::{AlertConfig, AppConfig, HighlightConfig, SourceConfig};
 use crate::filter::{FilterEngine, FilterRule};
 use crate::models::{LogEntry, LogLevel, SourceInfo, SourceType};
 use crate::parser::{JsonParser, Parser, PlainParser};
+use crate::secrets::{SecretLookup, SecretStore, SecretString};
 use crate::source::{SourceCommand, SourceEvent, SourceManager};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
@@ -139,6 +140,8 @@ pub struct AppCore {
     /// True when nothing was opened from the CLI or config auto-open — the
     /// frontend uses this to decide whether to restore the previous session.
     pub started_empty: bool,
+    /// Where SSH sources added without a password find a saved one.
+    secrets: SecretLookup,
 }
 
 /// Channel receivers handed to the frontend event loop (kept out of [`AppCore`]
@@ -149,15 +152,29 @@ pub struct CoreChannels {
 }
 
 impl AppCore {
+    /// A core whose SSH sources use saved passwords from the process-wide
+    /// default secret store ([`crate::secrets::shared_default`], opened on the
+    /// first SSH source that has no password).
     pub fn new(
         runtime: Arc<Runtime>,
         config: AppConfig,
         initial_files: Vec<PathBuf>,
     ) -> (Self, CoreChannels) {
+        Self::with_secrets(runtime, config, initial_files, SecretLookup::SharedDefault)
+    }
+
+    /// Like [`AppCore::new`] with an explicit secret store
+    /// ([`SecretLookup::Disabled`] to never look up saved passwords).
+    pub fn with_secrets(
+        runtime: Arc<Runtime>,
+        config: AppConfig,
+        initial_files: Vec<PathBuf>,
+        secrets: SecretLookup,
+    ) -> (Self, CoreChannels) {
         let buffer_size = config.general.buffer_size;
 
         // Sources run on the async runtime, driven by a command channel.
-        let mut source_manager = SourceManager::new();
+        let mut source_manager = SourceManager::new().with_secrets(secrets.clone());
         let event_rx = source_manager
             .take_event_receiver()
             .expect("source receiver available once");
@@ -199,6 +216,7 @@ impl AppCore {
             json_parser: JsonParser::new(),
             highlights: Vec::new(),
             started_empty: true,
+            secrets,
         };
 
         core.highlights = core
@@ -243,6 +261,15 @@ impl AppCore {
             .send(SourceCommand::AddLocal { name, path });
     }
 
+    /// The secret store SSH passwords are read from (and front ends should save
+    /// them to), or `None` when lookups are disabled. Opening the shared
+    /// default may block on the OS keychain the first time.
+    pub fn secret_store(&self) -> Option<Arc<dyn SecretStore>> {
+        self.secrets.resolve()
+    }
+
+    /// Add an SSH source. With `password: None` a saved password is used if
+    /// the secret store has one for `ssh:{user}@{host}:{port}`.
     #[allow(clippy::too_many_arguments)]
     pub fn add_ssh_source(
         &mut self,
@@ -261,7 +288,7 @@ impl AppCore {
             path,
             port,
             key_path,
-            password,
+            password: password.map(SecretString::from),
         });
     }
 
@@ -286,6 +313,7 @@ impl AppCore {
                 path,
                 port: Some(port),
                 key_path,
+                // Looked up in the secret store by the source manager.
                 password: None,
             },
         };

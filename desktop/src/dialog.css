@@ -1,0 +1,159 @@
+/* Modal dialogs (SshDialog.tsx): a dimmed backdrop over the window and one
+ * centred panel. Rendered inside .dk, so the --dk-* tokens apply. No literal
+ * colors: the shade is the theme's --dk-shade. */
+
+.dk-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: color-mix(in srgb, var(--dk-shade) 40%, transparent);
+}
+
+.dk-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--dk-gap);
+  width: min(460px, 100%);
+  max-height: 100%;
+  overflow: auto;
+  padding: 16px 18px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
+  background: var(--bg-panel);
+  color: var(--text-body);
+  box-shadow: 0 12px 40px color-mix(in srgb, var(--dk-shade) 35%, transparent);
+}
+
+.dk-dialog-title {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.dk-dialog-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* A text field filling the control column of a .dk-row. */
+.dk-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border-input);
+  border-radius: 5px;
+  background: var(--bg-input);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: 12.5px;
+}
+.dk-input::placeholder {
+  color: var(--text-muted);
+}
+.dk-input:focus-visible {
+  outline: none;
+  border-color: var(--dk-focus);
+}
+.dk-input.short {
+  flex: 0 0 90px;
+}
+
+.dk-dialog-note {
+  color: var(--text-muted);
+  font-size: var(--dk-small);
+}
+
+.dk-dialog-error {
+  padding: 8px 10px;
+  border: 1px solid var(--notice-error-bd);
+  border-radius: var(--dk-radius);
+  background: var(--notice-error-bg);
+  color: var(--text-error);
+  overflow-wrap: anywhere;
+}
+
+.dk-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+/* ---- Secret fields (RevealField.tsx, Settings "Saved passwords") ---- */
+.dk-reveal {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.dk-reveal-field {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.dk-input.mono,
+.dk-secret-value {
+  font-family: var(--font-mono);
+}
+.dk-icon-btn {
+  justify-content: center;
+  width: 28px;
+  padding: 0;
+  flex: none;
+}
+/* A small text button ("Forget" beside a saved password). */
+.dk-link-btn {
+  flex: none;
+  padding: 0 2px;
+  border: 0;
+  background: none;
+  color: var(--dk-accent-text);
+  font: inherit;
+  font-size: var(--dk-small);
+  text-decoration: underline;
+  cursor: pointer;
+}
+.dk-link-btn:hover {
+  color: var(--dk-accent-hover);
+}
+.dk-inline-error {
+  color: var(--text-error);
+  font-size: var(--dk-small);
+  overflow-wrap: anywhere;
+}
+.dk-secret-row {
+  padding: 4px 0;
+}
+.dk-secret-row > .dk-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.dk-secret-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dk-secret-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.dk-secret-error {
+  grid-column: 1 / -1;
+}
+.dk-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-soft);
+}

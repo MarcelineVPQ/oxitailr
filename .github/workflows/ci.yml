@@ -131,3 +131,98 @@ jobs:
         with:
           name: oxitailr-windows-x86_64
           path: target/x86_64-pc-windows-gnu/release/oxitailr.exe
+
+  # The desktop app (desktop/) is a workspace member but not a default member,
+  # so the jobs above never build it. These two jobs do.
+  desktop:
+    name: Desktop app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
+            librsvg2-dev libxdo-dev libssl-dev build-essential pkg-config
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-desktop-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-desktop-
+
+      - name: Install front-end dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Typecheck front end
+        working-directory: desktop
+        run: npm run typecheck
+
+      # Must run before any cargo step: tauri::generate_context! embeds desktop/dist.
+      - name: Build front end
+        working-directory: desktop
+        run: npm run build
+
+      - name: Check formatting
+        run: cargo fmt -p oxitailr-desktop -- --check
+
+      - name: Run clippy
+        run: cargo clippy -p oxitailr-desktop -- -D warnings
+
+      - name: Run tests
+        run: cargo test -p oxitailr-desktop
+
+  desktop-windows:
+    name: Desktop app (Windows build)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-desktop-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-desktop-
+
+      - name: Install front-end dependencies
+        working-directory: desktop
+        run: npm ci
+
+      # Compiles the front end and the Tauri app; skips installers to stay light.
+      - name: Build (no bundle)
+        working-directory: desktop
+        run: npx tauri build --no-bundle

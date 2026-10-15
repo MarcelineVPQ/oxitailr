@@ -1,5 +1,6 @@
 use super::{Source, SourceEvent};
 use crate::models::{SourceInfo, SourceStatus, SourceType};
+use crate::secrets::{ExposeSecret, SecretString};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use russh::client;
@@ -175,7 +176,7 @@ pub struct SshSource {
     user: String,
     path: String,
     key_path: Option<PathBuf>,
-    password: Option<String>,
+    password: Option<SecretString>,
     info: Arc<Mutex<SourceInfo>>,
     stop_tx: Option<watch::Sender<bool>>,
 }
@@ -207,7 +208,11 @@ impl SshSource {
         self
     }
 
-    pub fn with_password(mut self, password: String) -> Self {
+    pub fn with_password(self, password: String) -> Self {
+        self.with_secret_password(SecretString::from(password))
+    }
+
+    pub fn with_secret_password(mut self, password: SecretString) -> Self {
         self.password = Some(password);
         self
     }
@@ -364,7 +369,7 @@ async fn run_ssh_tail(
     user: String,
     path: String,
     key_path: Option<PathBuf>,
-    password: Option<String>,
+    password: Option<SecretString>,
     name: String,
     info: Arc<Mutex<SourceInfo>>,
     sender: mpsc::Sender<SourceEvent>,
@@ -415,8 +420,11 @@ async fn run_ssh_tail(
     // If key auth failed and password is provided, try password auth
     if !authenticated {
         if let Some(ref pwd) = password {
-            if !pwd.is_empty() {
-                if let Ok(true) = session.authenticate_password(&user, pwd).await {
+            if !pwd.expose_secret().is_empty() {
+                if let Ok(true) = session
+                    .authenticate_password(&user, pwd.expose_secret())
+                    .await
+                {
                     authenticated = true;
                     tracing::info!("SSH authenticated with password");
                 }

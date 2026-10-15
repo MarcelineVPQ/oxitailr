@@ -14,10 +14,10 @@
 pub mod alert;
 pub mod app;
 pub mod config;
-pub mod credentials;
 pub mod filter;
 pub mod models;
 pub mod parser;
+pub mod secrets;
 pub mod source;
 pub mod state;
 
