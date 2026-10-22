@@ -75,10 +75,12 @@ cargo fmt -- --check
 cargo clippy -- -D warnings
 ```
 
-CI (`.github/workflows/ci.yml`) runs `cargo test`, `cargo fmt -- --check`, and
-`cargo clippy -- -D warnings` for the default members, plus a `desktop` job (npm typecheck +
-build, then fmt/clippy/test for `-p oxitailr-desktop`) and a `desktop-windows` job
-(`npx tauri build --no-bundle`). Match formatting and keep clippy clean before pushing.
+CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on PRs into any branch (so stacked
+PRs get CI too). It runs `cargo test`, `cargo fmt -- --check`, and `cargo clippy -- -D warnings`
+for the default members, plus a `desktop` job (npm typecheck + build, then fmt/clippy/test for
+`-p oxitailr-desktop`) and a `desktop-windows` job (`npx tauri build --bundles nsis` on
+`windows-latest`, uploading the installer as the `oxitailr-desktop-windows-setup` artifact).
+Match formatting and keep clippy clean before pushing.
 
 ## Architecture
 
@@ -139,53 +141,31 @@ See `RESUME_NOTES.md` for an active diagnosis + plan. In short:
 
 ## Release Process
 
-When creating a GitHub release, **ALWAYS upload ALL FOUR files** with consistent naming:
+Releases are built by `.github/workflows/release.yml` when a `v*` tag is pushed. Don't build or
+upload release files by hand. The workflow runs the gates, builds all four files and publishes the
+GitHub release with generated notes. The names must stay exactly:
 
 1. **Linux binary**: `oxitailr-{VERSION}-x86_64`
-2. **Windows binary**: `oxitailr-{VERSION}-x86_64.exe`
+2. **Windows binary**: `oxitailr-{VERSION}-x86_64.exe` (MinGW cross-compile on Ubuntu)
 3. **AppImage**: `Oxitailr-{VERSION}-x86_64.AppImage`
 4. **Desktop app, Windows installer**: `Oxitailr-Desktop-{VERSION}-x86_64-setup.exe` (NSIS, built on `windows-latest`)
 
 **IMPORTANT**:
-- Always include the VERSION in all binary names
-- Always include `-x86_64` suffix on all binaries (we only build 64-bit)
+- Always include the VERSION in all file names
+- Always include the `-x86_64` suffix (we only build 64-bit)
+- The desktop installer is NSIS only: MSI refuses pre-release versions
 
-### Build Commands
+### Checklist
+
+- [ ] Bump `version` in the root `Cargo.toml` (`[workspace.package]`; the desktop crate inherits it), then `cargo update -w`
+- [ ] Bump `version` in `desktop/package.json` and `desktop/package-lock.json`
+- [ ] Move `[Unreleased]` in `CHANGELOG.md` to the new version and update the compare links at the bottom
+- [ ] Update the version in the `README.md` download instructions and the desktop app section
+- [ ] Merge the bump through a `release/vX.Y.Z` PR
+- [ ] Tag `main` and push the tag:
 
 ```bash
-# Build all three binaries
-cargo build --release
-cargo build --release --target x86_64-pc-windows-gnu
-./appimage/build-appimage.sh
+git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
 ```
 
-### Release Command
-
-```bash
-# Set version variable
-VERSION="0.2.13"  # Update this!
-
-# Copy binaries with correct names
-cp target/release/oxitailr /tmp/oxitailr-${VERSION}-x86_64
-cp target/x86_64-pc-windows-gnu/release/oxitailr.exe /tmp/oxitailr-${VERSION}-x86_64.exe
-
-# Create release with all three binaries
-gh release create v${VERSION} \
-  --title "v${VERSION}" \
-  --notes "Release notes here" \
-  /tmp/oxitailr-${VERSION}-x86_64 \
-  /tmp/oxitailr-${VERSION}-x86_64.exe \
-  release/Oxitailr-${VERSION}-x86_64.AppImage
-```
-
-### Checklist Before Release
-
-- [ ] Update version in `Cargo.toml`
-- [ ] Update `CHANGELOG.md`
-- [ ] Update version in `README.md` download instructions
-- [ ] Build all three binaries (Linux, Windows, AppImage)
-- [ ] Commit and push changes
-- [ ] Create GitHub release with **ALL THREE** binaries:
-  - [ ] `oxitailr-{VERSION}-x86_64` (Linux)
-  - [ ] `oxitailr-{VERSION}-x86_64.exe` (Windows)
-  - [ ] `Oxitailr-{VERSION}-x86_64.AppImage`
+- [ ] Check the release has all four files: `gh release view vX.Y.Z`
