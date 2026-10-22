@@ -222,6 +222,11 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      # The cargo cache restores target/, including installers from earlier builds.
+      - name: Clear old installers
+        shell: bash
+        run: rm -rf target/release/bundle
+
       # Same NSIS bundle as release.yml, so a broken installer shows up before a tag.
       - name: Build installer
         working-directory: desktop
