@@ -99,7 +99,7 @@ Inside the app: press **`?`** for the full key list, **`q`** to quit. It tails l
 
 ## Desktop app (preview)
 
-A desktop app is on the way: the **same engine, in a window**. Everything the terminal app does by key has a GUI control — a left nav rail, one tab per source, level chips, filter, search, follow, bookmarks, drag-and-drop or an Open dialog, and a light / dark / system theme — and every key from the table above still works.
+The desktop app is the **same engine, in a window**. Everything the terminal app does by key has a GUI control — a left nav rail, one tab per source, level chips, filter, search, follow, bookmarks, drag-and-drop or an Open dialog, and a light / dark / system theme — and every key from the table above still works.
 
 **Status:** preview. Windows: download `Oxitailr-Desktop-0.4.0-x86_64-setup.exe` from the [release](https://github.com/MarcelineVPQ/oxitailr/releases/latest) and run it. Linux: build it from source.
 
