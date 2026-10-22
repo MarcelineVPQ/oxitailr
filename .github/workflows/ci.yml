@@ -222,7 +222,13 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      # Compiles the front end and the Tauri app; skips installers to stay light.
-      - name: Build (no bundle)
+      # Same NSIS bundle as release.yml, so a broken installer shows up before a tag.
+      - name: Build installer
         working-directory: desktop
-        run: npx tauri build --no-bundle
+        run: npx tauri build --bundles nsis
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oxitailr-desktop-windows-setup
+          path: target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error

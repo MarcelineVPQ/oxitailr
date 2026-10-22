@@ -139,11 +139,12 @@ See `RESUME_NOTES.md` for an active diagnosis + plan. In short:
 
 ## Release Process
 
-When creating a GitHub release, **ALWAYS upload ALL THREE binaries** with consistent naming:
+When creating a GitHub release, **ALWAYS upload ALL FOUR files** with consistent naming:
 
 1. **Linux binary**: `oxitailr-{VERSION}-x86_64`
 2. **Windows binary**: `oxitailr-{VERSION}-x86_64.exe`
 3. **AppImage**: `Oxitailr-{VERSION}-x86_64.AppImage`
+4. **Desktop app, Windows installer**: `Oxitailr-Desktop-{VERSION}-x86_64-setup.exe` (NSIS, built on `windows-latest`)
 
 **IMPORTANT**:
 - Always include the VERSION in all binary names
