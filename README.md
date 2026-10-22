@@ -34,18 +34,18 @@ Each [release](https://github.com/MarcelineVPQ/oxitailr/releases) ships three x8
 
 ### Linux — AppImage
 ```bash
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.4.0/Oxitailr-0.4.0-x86_64.AppImage
-chmod +x Oxitailr-0.4.0-x86_64.AppImage
-./Oxitailr-0.4.0-x86_64.AppImage /var/log/syslog
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.4.1/Oxitailr-0.4.1-x86_64.AppImage
+chmod +x Oxitailr-0.4.1-x86_64.AppImage
+./Oxitailr-0.4.1-x86_64.AppImage /var/log/syslog
 ```
 
 ### Linux — plain binary
-Download `oxitailr-0.4.0-x86_64`, `chmod +x`, then `./oxitailr-0.4.0-x86_64 /var/log/syslog`.
+Download `oxitailr-0.4.1-x86_64`, `chmod +x`, then `./oxitailr-0.4.1-x86_64 /var/log/syslog`.
 
 ### Windows
-Download `oxitailr-0.4.0-x86_64.exe`. In **PowerShell / Windows Terminal**:
+Download `oxitailr-0.4.1-x86_64.exe`. In **PowerShell / Windows Terminal**:
 ```powershell
-.\oxitailr-0.4.0-x86_64.exe C:\path\to\your.log
+.\oxitailr-0.4.1-x86_64.exe C:\path\to\your.log
 ```
 (or drag a log file onto the `.exe`). A plain double-click won't work — it needs a console.
 
@@ -101,7 +101,7 @@ Inside the app: press **`?`** for the full key list, **`q`** to quit. It tails l
 
 The desktop app is the **same engine, in a window**. Everything the terminal app does by key has a GUI control — a left nav rail, one tab per source, level chips, filter, search, follow, bookmarks, drag-and-drop or an Open dialog, and a light / dark / system theme — and every key from the table above still works.
 
-**Status:** preview. Windows: download `Oxitailr-Desktop-0.4.0-x86_64-setup.exe` from the [release](https://github.com/MarcelineVPQ/oxitailr/releases/latest) and run it. Linux: build it from source.
+**Status:** preview. Windows: download `Oxitailr-Desktop-0.4.1-x86_64-setup.exe` from the [release](https://github.com/MarcelineVPQ/oxitailr/releases/latest) and run it. Linux: build it from source.
 
 Prerequisites: a Rust toolchain and **Node 26**. On Linux, also the WebKitGTK build dependencies:
 ```bash
@@ -185,7 +185,7 @@ cargo build --release            # -> target/release/oxitailr
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.4.0**.
+See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.4.1**.
 
 ## License
 
