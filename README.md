@@ -30,22 +30,22 @@ Filter presets and highlight rules are defined in the config file; the in-app *e
 
 ## Installation
 
-Each [release](https://github.com/MarcelineVPQ/oxitailr/releases) ships three x86-64 builds. **All are terminal programs — launch them from a terminal with a file path.**
+Each [release](https://github.com/MarcelineVPQ/oxitailr/releases) ships three x86-64 builds of the terminal app — **launch them from a terminal with a file path** — plus a Windows installer for the [desktop app](#desktop-app-preview).
 
 ### Linux — AppImage
 ```bash
-wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.3.4/Oxitailr-0.3.4-x86_64.AppImage
-chmod +x Oxitailr-0.3.4-x86_64.AppImage
-./Oxitailr-0.3.4-x86_64.AppImage /var/log/syslog
+wget https://github.com/MarcelineVPQ/oxitailr/releases/download/v0.4.0/Oxitailr-0.4.0-x86_64.AppImage
+chmod +x Oxitailr-0.4.0-x86_64.AppImage
+./Oxitailr-0.4.0-x86_64.AppImage /var/log/syslog
 ```
 
 ### Linux — plain binary
-Download `oxitailr-0.3.4-x86_64`, `chmod +x`, then `./oxitailr-0.3.4-x86_64 /var/log/syslog`.
+Download `oxitailr-0.4.0-x86_64`, `chmod +x`, then `./oxitailr-0.4.0-x86_64 /var/log/syslog`.
 
 ### Windows
-Download `oxitailr-0.3.4-x86_64.exe`. In **PowerShell / Windows Terminal**:
+Download `oxitailr-0.4.0-x86_64.exe`. In **PowerShell / Windows Terminal**:
 ```powershell
-.\oxitailr-0.3.4-x86_64.exe C:\path\to\your.log
+.\oxitailr-0.4.0-x86_64.exe C:\path\to\your.log
 ```
 (or drag a log file onto the `.exe`). A plain double-click won't work — it needs a console.
 
@@ -101,7 +101,7 @@ Inside the app: press **`?`** for the full key list, **`q`** to quit. It tails l
 
 A desktop app is on the way: the **same engine, in a window**. Everything the terminal app does by key has a GUI control — a left nav rail, one tab per source, level chips, filter, search, follow, bookmarks, drag-and-drop or an Open dialog, and a light / dark / system theme — and every key from the table above still works.
 
-**Status:** preview. There are no downloads yet; build it from source.
+**Status:** preview. Windows: download `Oxitailr-Desktop-0.4.0-x86_64-setup.exe` from the [release](https://github.com/MarcelineVPQ/oxitailr/releases/latest) and run it. Linux: build it from source.
 
 Prerequisites: a Rust toolchain and **Node 26**. On Linux, also the WebKitGTK build dependencies:
 ```bash
@@ -185,7 +185,7 @@ cargo build --release            # -> target/release/oxitailr
 
 ## Changelog
 
-See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.3.4**.
+See [CHANGELOG.md](CHANGELOG.md) for the full version history. The latest release is **v0.4.0**.
 
 ## License
 

@@ -7,13 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.4.0] - 2026-10-22
+
 ### Added
 - **Desktop app (preview).** `desktop/` is a Tauri app that runs the same
   engine as the terminal app in a window: a left nav rail, a log view with
   level chips, filter, search, follow, bookmarks and one tab per source,
   drag-and-drop and an Open dialog for files, and a light / dark / system
-  theme. Every terminal key still works. Build it from source for now (see
-  the README); CI builds it on Linux and Windows.
+  theme. Every terminal key still works. Windows: each release now ships
+  `Oxitailr-Desktop-<ver>-x86_64-setup.exe` (NSIS installer). Linux: build it
+  from source (see the README).
 
 ### Changed
 - **The engine is now a library.** The repo is a Cargo workspace:
@@ -352,7 +357,8 @@ SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight r
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.4...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.1...v0.3.2
