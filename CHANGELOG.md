@@ -9,7 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 _Nothing yet._
 
-## [0.4.0] - 2026-10-22
+## [0.4.1] - 2026-10-22
+
+First published release of the 0.4 line: the v0.4.0 tag's release build failed while packaging the Windows installer, so nothing was published under it. 0.4.1 has the same contents as 0.4.0 below.
+
+### Fixed
+- Release packaging: the Windows desktop installer job no longer picks up a stale installer restored from the build cache.
+
+## [0.4.0] - 2026-10-22 (not published)
 
 ### Added
 - **Desktop app (preview).** `desktop/` is a Tauri app that runs the same
@@ -357,7 +364,8 @@ SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight r
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.2...v0.3.3
