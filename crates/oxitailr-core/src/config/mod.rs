@@ -32,7 +32,9 @@ mod tests {
     #[test]
     fn example_config_parses() {
         // The shipped example must always deserialize into the current schema.
-        let cfg = load_config(Path::new("config.example.toml")).expect("example config parses");
+        // Tests run from the crate's own folder; the example lives at the repo root.
+        let example = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../config.example.toml");
+        let cfg = load_config(&example).expect("example config parses");
         assert!(cfg.filters.contains_key("production"));
         assert_eq!(cfg.highlights.len(), 3);
         assert!(cfg.sources.iter().any(|s| s.auto_open()));

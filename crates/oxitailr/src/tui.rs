@@ -4,9 +4,6 @@
 //! source/alert channels and only redraws on a change, so it sits at ~0% CPU
 //! when idle. ratatui diffs at the character level, so redraws are cheap.
 
-use crate::app::{AppCore, CoreChannels, DisplayLine, HighlightMatcher};
-use crate::models::LogLevel;
-use crate::state::{load_session, save_session, WindowState};
 use anyhow::Result;
 use crossterm::event::{
     DisableBracketedPaste, EnableBracketedPaste, Event, EventStream, KeyCode, KeyEventKind,
@@ -16,6 +13,9 @@ use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
 use futures::StreamExt;
+use oxitailr_core::app::{AppCore, CoreChannels, DisplayLine, HighlightMatcher};
+use oxitailr_core::models::LogLevel;
+use oxitailr_core::state::{load_session, save_session, WindowState};
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};

@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Changed
+- **The engine is now a library.** The repo is a Cargo workspace:
+  `crates/oxitailr-core` holds the engine (sources, parsers, filters, alerts,
+  config, sessions and `AppCore`) and `crates/oxitailr` is the terminal app on
+  top of it. Nothing changes for users: the binary, its name, flags and config
+  are the same. This lets other front ends (a desktop app and a headless agent
+  are planned) share the engine.
+- `LogLevel::from_str` is now `LogLevel::parse` (it clashed with the standard
+  `FromStr` name once the engine became a public library).
+
+### Fixed
+- `cargo clippy -- -D warnings` fails on current Rust (1.99) because older
+  `async-trait` output trips the new `double_must_use` lint. `async-trait` is
+  updated to 0.1.89.
 
 ## [0.3.4] - 2026-06-04
 

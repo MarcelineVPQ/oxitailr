@@ -58,7 +58,7 @@ impl JsonParser {
     fn extract_level(&self, obj: &serde_json::Map<String, Value>) -> Option<LogLevel> {
         for field in &self.level_fields {
             if let Some(Value::String(s)) = obj.get(*field) {
-                if let Some(level) = LogLevel::from_str(s) {
+                if let Some(level) = LogLevel::parse(s) {
                     return Some(level);
                 }
             }
