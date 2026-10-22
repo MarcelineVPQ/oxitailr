@@ -165,6 +165,10 @@ jobs:
       - name: Install front-end dependencies
         working-directory: desktop
         run: npm ci
+      # The cargo cache restores target/, including installers from earlier builds.
+      - name: Clear old installers
+        shell: bash
+        run: rm -rf target/release/bundle
       # NSIS only: one installer, and MSI refuses pre-release versions.
       - name: Build installer
         working-directory: desktop
@@ -174,7 +178,7 @@ jobs:
         # Named apart from the terminal app's oxitailr-<ver>-x86_64.exe.
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          cp target/release/bundle/nsis/*-setup.exe "Oxitailr-Desktop-${VERSION}-x86_64-setup.exe"
+          cp "target/release/bundle/nsis/Oxitailr_${VERSION}_x64-setup.exe" "Oxitailr-Desktop-${VERSION}-x86_64-setup.exe"
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
