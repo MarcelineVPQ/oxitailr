@@ -61,7 +61,9 @@ pub enum SourceCommand {
         path: String,
         port: Option<u16>,
         key_path: Option<std::path::PathBuf>,
-        password: Option<String>,
+        /// `None` means "use the saved password, if any" (see
+        /// [`crate::secrets::saved_ssh_password`]).
+        password: Option<crate::secrets::SecretString>,
     },
     Remove {
         name: String,

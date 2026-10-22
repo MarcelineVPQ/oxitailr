@@ -1,0 +1,33 @@
+[package]
+name = "oxitailr-desktop"
+description = "The oxitailr desktop app: the same engine as the terminal app, in a window"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[build-dependencies]
+tauri-build.workspace = true
+
+[dependencies]
+oxitailr-core.workspace = true
+tauri.workspace = true
+tauri-plugin-dialog.workspace = true
+tauri-plugin-autostart.workspace = true
+tauri-plugin-single-instance.workspace = true
+tauri-plugin-notification.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+serde.workspace = true
+regex.workspace = true
+dirs.workspace = true
+tracing.workspace = true
+anyhow.workspace = true
+
+# Linux tray: the native StatusNotifierItem backend (ksni, pure Rust over
+# D-Bus) instead of AppIndicator. AppIndicator never reports clicks, so a
+# single click couldn't show/hide the window, and it needs a system library
+# at runtime; ksni does neither. Same version as the one Tauri uses, so the
+# feature switches Tauri's own tray to it.
+[target.'cfg(target_os = "linux")'.dependencies]
+tray-icon = { version = "0.25.1", default-features = false, features = ["ksni"] }

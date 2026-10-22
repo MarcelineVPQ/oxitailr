@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Oxitailr</title>
+    <script>
+      // The saved theme before the first paint (theme.ts owns it after that),
+      // so a dark window never flashes light. Storage can be blocked: then the
+      // window follows the system.
+      (function () {
+        var t = "system";
+        try {
+          var v = localStorage.getItem("oxi.theme");
+          if (v === "light" || v === "dark" || v === "system") t = v;
+        } catch (e) {}
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

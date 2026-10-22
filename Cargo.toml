@@ -1,5 +1,9 @@
 [workspace]
-members = ["crates/oxitailr-core", "crates/oxitailr"]
+members = ["crates/oxitailr-core", "crates/oxitailr", "desktop/src-tauri"]
+# Plain `cargo build/test/clippy` at the root covers the engine and the terminal
+# app. The desktop app needs WebKitGTK/WebView2 to build, so it is built on its
+# own (`cargo build -p oxitailr-desktop`, or `npm run tauri build` in desktop/).
+default-members = ["crates/oxitailr-core", "crates/oxitailr"]
 resolver = "2"
 
 [workspace.package]
@@ -23,8 +27,8 @@ async-trait = "0.1"
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
 
-# Security - KDF and randomness
-argon2 = "0.5"
+# Security - KDF (argon2 only reads the legacy credentials file) and randomness
+argon2 = "0.6.0"
 rand = "0.8"
 shlex = "1.3"
 
@@ -69,8 +73,26 @@ thiserror = "1.0"
 dirs = "5.0"
 
 # Encryption for password storage
-aes-gcm = "0.10"
+aes-gcm = { version = "0.11.1", features = ["zeroize"] }
 base64 = "0.22"
+
+# Secret store (crates/oxitailr-core/src/secrets.rs): keyring-core plus one OS
+# keychain per platform — Windows Credential Manager, macOS Keychain, and the
+# Linux Secret Service over pure-Rust zbus (no libdbus) — and zeroizing secrets
+keyring-core = "1.0.1"
+windows-native-keyring-store = "1.1.0"
+apple-native-keyring-store = { version = "1.0.2", features = ["keychain"] }
+zbus-secret-service-keyring-store = { version = "1.0.1", features = ["crypto-rust"] }
+secrecy = "0.10.3"
+zeroize = "1.9.1"
+
+# Desktop app (desktop/src-tauri)
+tauri = { version = "2.12.4", features = ["tray-icon", "image-png"] }
+tauri-build = { version = "2.7.3", features = [] }
+tauri-plugin-dialog = "2.8.3"
+tauri-plugin-autostart = "2.7.0"
+tauri-plugin-single-instance = "2.5.4"
+tauri-plugin-notification = "2.7.0"
 
 # Tests
 tempfile = "3.10"

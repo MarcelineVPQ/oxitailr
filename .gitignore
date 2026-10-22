@@ -51,3 +51,11 @@ coverage/
 *.profraw
 *.profdata
 dist/
+
+# Desktop app (desktop/): npm installs, Vite output, Tauri-generated schemas
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/gen/
+desktop/src-tauri/target/
+desktop/*.tsbuildinfo
+desktop/vite.config.*.timestamp-*

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Desktop app (preview).** `desktop/` is a Tauri app that runs the same
+  engine as the terminal app in a window: a left nav rail, a log view with
+  level chips, filter, search, follow, bookmarks and one tab per source,
+  drag-and-drop and an Open dialog for files, and a light / dark / system
+  theme. Every terminal key still works. Build it from source for now (see
+  the README); CI builds it on Linux and Windows.
+
 ### Changed
 - **The engine is now a library.** The repo is a Cargo workspace:
   `crates/oxitailr-core` holds the engine (sources, parsers, filters, alerts,

@@ -106,7 +106,7 @@ mod filtering {
     #[test]
     fn test_regex_filter_match() {
         let pattern = Regex::new(r"ERROR|FATAL").unwrap();
-        let lines = vec![
+        let lines = [
             "INFO Starting up",
             "ERROR Connection failed",
             "DEBUG Retrying",
@@ -122,7 +122,7 @@ mod filtering {
     #[test]
     fn test_case_insensitive_filter() {
         let pattern = Regex::new(r"(?i)error").unwrap();
-        let lines = vec![
+        let lines = [
             "ERROR uppercase",
             "error lowercase",
             "Error mixed",
@@ -138,7 +138,7 @@ mod filtering {
         let include = Regex::new(r"ERROR").unwrap();
         let exclude = Regex::new(r"healthcheck").unwrap();
 
-        let lines = vec![
+        let lines = [
             "ERROR Connection failed",
             "ERROR healthcheck timeout",
             "ERROR Database error",
@@ -155,9 +155,9 @@ mod filtering {
 
     #[test]
     fn test_level_filter() {
-        let levels_to_show = vec!["ERROR", "WARN"];
+        let levels_to_show = ["ERROR", "WARN"];
 
-        let lines = vec![
+        let lines = [
             ("INFO Starting", "INFO"),
             ("WARN Low memory", "WARN"),
             ("ERROR Failed", "ERROR"),
@@ -273,9 +273,11 @@ mod session_state {
 
     #[test]
     fn test_session_serialization() {
-        let mut session = MockSession::default();
-        session.open_sources = vec!["app.log".to_string(), "server.log".to_string()];
-        session.selected_source = Some("app.log".to_string());
+        let mut session = MockSession {
+            open_sources: vec!["app.log".to_string(), "server.log".to_string()],
+            selected_source: Some("app.log".to_string()),
+            ..Default::default()
+        };
         session
             .bookmarks
             .insert("app.log".to_string(), [10, 20, 30].into_iter().collect());
