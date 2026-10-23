@@ -3,9 +3,9 @@
 // 50. The back end says "changed" at most ten times a second; between those,
 // nothing here runs.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { ArrowDownToLine, Bell, Bookmark, Eraser, FolderOpen, RotateCw, Search, Server, X } from "lucide-react";
+import { ArrowDownToLine, Bell, Bookmark, Download, Eraser, FolderOpen, RotateCw, Search, Server, X } from "lucide-react";
 import SshDialog from "../SshDialog";
 import { api, LEVELS, onChanged, onWindowVisible, type Level, type Row, type Snapshot } from "../api";
 
@@ -40,6 +40,8 @@ export default function LogsPage({ active, onStatus }: { active: boolean; onStat
   const [cursor, setCursor] = useState<number | null>(null);
   const [alertsOpen, setAlertsOpen] = useState(false);
   const [sshOpen, setSshOpen] = useState(false);
+  // What the last export wrote, or why it failed (shown in the status line until dismissed).
+  const [exported, setExported] = useState<{ ok: boolean; text: string } | null>(null);
   const [viewH, setViewH] = useState(400);
   const [lines, setLines] = useState(0);
   const [bytes, setBytes] = useState(0);
@@ -311,6 +313,29 @@ export default function LogsPage({ active, onStatus }: { active: boolean; onStat
     void fetchWindow();
   };
 
+  // Export what the view shows (tab, filter, levels) to a CSV file.
+  const exportView = async () => {
+    const name = `oxitailr-${(tab ?? "all").replace(/[^\w.-]+/g, "_")}.csv`;
+    let path: string | null;
+    try {
+      path = await save({ title: "Export the shown lines", defaultPath: name, filters: [{ name: "CSV", extensions: ["csv"] }] });
+    } catch (e) {
+      // error: SHOWN — in the status line
+      setExported({ ok: false, text: `The save dialog failed: ${e}` });
+      return;
+    }
+    if (!path) return; // cancelled
+    try {
+      const r = await api.exportView(path);
+      const file = r.path.split(/[\\/]/).pop() ?? r.path;
+      const capped = r.lines >= r.buffer_size ? ` · only the newest ${r.buffer_size.toLocaleString()} lines are kept in memory` : "";
+      setExported({ ok: true, text: `Exported ${r.lines.toLocaleString()} line${r.lines === 1 ? "" : "s"} to ${file}${capped}` });
+    } catch (e) {
+      // error: SHOWN — in the status line
+      setExported({ ok: false, text: String(e) });
+    }
+  };
+
   const openDialog = async () => {
     try {
       const picked = await open({ multiple: true, directory: false, title: "Open log files" });
@@ -471,6 +496,11 @@ export default function LogsPage({ active, onStatus }: { active: boolean; onStat
           </select>
         )}
         <span className="logs-spacer" />
+        {total > 0 && (
+          <button type="button" className="dk-btn" onClick={() => void exportView()} title="Save the lines shown now (this tab, the filter and the levels) as a CSV file">
+            <Download size={14} aria-hidden="true" /> Export
+          </button>
+        )}
         <button type="button" className={`dk-btn${follow ? " on" : ""}`} aria-pressed={follow} onClick={goLive} title="Follow live: jump to the newest line and stay there (G, End)">
           <ArrowDownToLine size={14} aria-hidden="true" /> Live
         </button>
@@ -619,6 +649,14 @@ export default function LogsPage({ active, onStatus }: { active: boolean; onStat
         <span>{sources.length} source{sources.length === 1 ? "" : "s"}</span>
         {bytes > 0 && <span>{formatBytes(bytes)}</span>}
         {filterErr && <span className="logs-status-warn">Filter matched as text</span>}
+        {exported && (
+          <span className={exported.ok ? "logs-exported" : "logs-status-warn"} title={exported.text}>
+            {exported.text}
+            <button type="button" className="logs-field-clear" aria-label="Dismiss" onClick={() => setExported(null)}>
+              <X size={12} aria-hidden="true" />
+            </button>
+          </span>
+        )}
         <span className="logs-spacer" />
         <span className={follow ? "logs-live on" : "logs-live"}>{follow ? "● Live" : "Paused · G to follow"}</span>
       </footer>

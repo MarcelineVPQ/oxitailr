@@ -390,3 +390,19 @@ button.logs-tab {
   color: var(--status-good);
   font-weight: 600;
 }
+
+/* What the last export wrote (LogsPage exportView), with its dismiss button. */
+.logs-exported {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--status-good);
+}
+.logs-status-warn .logs-field-clear,
+.logs-exported .logs-field-clear {
+  flex: none;
+}

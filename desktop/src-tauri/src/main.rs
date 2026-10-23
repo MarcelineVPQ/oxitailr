@@ -6,6 +6,7 @@
 //! runs on a timer while nothing changes.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod export;
 mod secrets_cmd;
 mod ssh;
 mod tray;
@@ -669,6 +670,7 @@ fn main() {
             secrets_cmd::forget_secret,
             secrets_cmd::ssh_secret_id,
             config_summary,
+            export::export_view,
             open_config_folder,
             tray::startup_settings,
             tray::set_startup_setting,

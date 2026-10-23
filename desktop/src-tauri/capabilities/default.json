@@ -3,5 +3,5 @@
   "identifier": "default",
   "description": "What the main window may do: the app's own commands, events, and the file-open dialog. Nothing else.",
   "windows": ["main"],
-  "permissions": ["core:default", "dialog:allow-open", "autostart:allow-enable", "autostart:allow-disable", "autostart:allow-is-enabled", "opener:default"]
+  "permissions": ["core:default", "dialog:allow-open", "dialog:allow-save", "autostart:allow-enable", "autostart:allow-disable", "autostart:allow-is-enabled", "opener:default"]
 }

@@ -102,6 +102,14 @@ export interface ConfigSummary {
   buffer_size: number;
 }
 
+/** What an export wrote. */
+export interface ExportResult {
+  path: string;
+  lines: number;
+  /** Lines kept in memory (older lines can't be exported). */
+  buffer_size: number;
+}
+
 /** The tray menu's switches (also on Settings → Startup). */
 export interface StartupSettings {
   close_to_tray: boolean;
@@ -141,6 +149,8 @@ export const api = {
   revealSecret: (id: string) => invoke<string | null>("reveal_secret", { id }),
   forgetSecret: (id: string) => invoke<void>("forget_secret", { id }),
   configSummary: () => invoke<ConfigSummary>("config_summary"),
+  /** Write the lines the view shows (tab, filter, levels) to a CSV file. */
+  exportView: (path: string) => invoke<ExportResult>("export_view", { path }),
   openConfigFolder: () => invoke<void>("open_config_folder"),
   startupSettings: () => invoke<StartupSettings>("startup_settings"),
   /** Rejects with the reason when it couldn't be changed (launch at login, the OS said no). */

@@ -7,7 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added
+
+- **Export the shown lines to CSV.** Logs → Export saves exactly what the view shows (the
+  source tab, the filter and the level switches; search only highlights) as a CSV file:
+  line, source, time, level, message. The time is as the log wrote it (no time zone
+  added) and ANSI colors are stripped. Spreadsheet-safe: a cell starting with = + - @
+  gets a leading ' so Excel shows it as text instead of running it; UTF-8 with a BOM so
+  Excel reads non-English text. Only the lines in memory can be exported (the newest
+  `buffer_size`, default 10,000), and the status line says so when the export hits it.
 
 ## [0.5.0] - 2026-10-23
 

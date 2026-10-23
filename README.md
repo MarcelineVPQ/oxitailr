@@ -24,6 +24,10 @@ A fast, low-resource log viewer / live tailer built in Rust, for Linux and Windo
 - **Search and highlight rules:** matches are highlighted as you type and you jump between
   them; highlight rules from the config paint matching text in a color.
 - **Bookmarks and copy:** bookmark lines and jump between them; copy a line.
+- **Export to CSV:** save exactly the lines the view shows (tab, filter, levels) as a CSV
+  file for a spreadsheet: line, source, time, level, message. Spreadsheet-safe (a cell
+  starting with = + - @ is kept as text). Only the lines in memory are exported (the newest
+  `buffer_size`).
 - **Alerts** from the config's rules: a bell with the recent hits, a badge on the rail, a
   desktop notification while the window isn't focused, and sound or webhook actions.
 - **System tray:** a click shows or hides the window. Close to tray, Start minimized, Launch
