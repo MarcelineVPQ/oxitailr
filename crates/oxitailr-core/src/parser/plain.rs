@@ -12,10 +12,13 @@ static TIMESTAMP_PATTERNS: LazyLock<Vec<(Regex, &'static str)>> = LazyLock::new(
                 .unwrap(),
             "%Y-%m-%dT%H:%M:%S%.fZ",
         ),
-        // Common log format: 2024-01-22 10:15:32
+        // Common log format: 2024-01-22 10:15:32, with optional fractional
+        // seconds after a dot or a comma (Python's logging writes
+        // "2024-01-22 10:15:32,423"). Without the fraction in the pattern the
+        // milliseconds were dropped and every line read as .000.
         (
-            Regex::new(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})").unwrap(),
-            "%Y-%m-%d %H:%M:%S",
+            Regex::new(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(?:[.,]\d{1,9})?)").unwrap(),
+            "%Y-%m-%d %H:%M:%S%.f",
         ),
         // Syslog: Jan 22 10:15:32
         (
@@ -40,11 +43,14 @@ impl PlainParser {
         for (pattern, format) in TIMESTAMP_PATTERNS.iter() {
             if let Some(captures) = pattern.captures(line) {
                 if let Some(m) = captures.get(1) {
-                    if let Ok(dt) = NaiveDateTime::parse_from_str(m.as_str(), format) {
+                    // chrono's %.f wants a dot; a comma decimal separator is
+                    // just as valid (ISO 8601, Python's logging).
+                    let text = m.as_str().replace(',', ".");
+                    if let Ok(dt) = NaiveDateTime::parse_from_str(&text, format) {
                         return Some(dt.and_utc());
                     }
                     // Try parsing as DateTime<Utc> directly for ISO format
-                    if let Ok(dt) = DateTime::parse_from_rfc3339(m.as_str()) {
+                    if let Ok(dt) = DateTime::parse_from_rfc3339(&text) {
                         return Some(dt.with_timezone(&Utc));
                     }
                 }
@@ -101,6 +107,31 @@ mod tests {
         let entry = parser.parse("test", "2024-01-22 10:15:32 ERROR Connection failed");
         assert!(entry.timestamp.is_some());
         assert_eq!(entry.level, Some(LogLevel::Error));
+    }
+
+    #[test]
+    fn test_common_timestamp_keeps_milliseconds() {
+        let parser = PlainParser::new();
+        // Python logging: comma before the milliseconds.
+        let entry = parser.parse(
+            "test",
+            "2026-10-23 10:16:25,423 - infrastructure_discovery - INFO - Upserting",
+        );
+        assert_eq!(
+            entry.timestamp.unwrap().format("%H:%M:%S%.3f").to_string(),
+            "10:16:25.423"
+        );
+        // A dot works the same, and no fraction still parses.
+        let entry = parser.parse("test", "2026-10-23 10:16:25.007 INFO x");
+        assert_eq!(
+            entry.timestamp.unwrap().format("%H:%M:%S%.3f").to_string(),
+            "10:16:25.007"
+        );
+        let entry = parser.parse("test", "2026-10-23 10:16:25 INFO x");
+        assert_eq!(
+            entry.timestamp.unwrap().format("%H:%M:%S%.3f").to_string(),
+            "10:16:25.000"
+        );
     }
 
     #[test]

@@ -7,7 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-_Nothing yet._
+### Fixed
+
+- **Timestamps keep their milliseconds.** The `2024-01-22 10:15:32` pattern stopped at the
+  seconds, so a line written as `10:16:25,423` (Python's logging puts a comma before the
+  milliseconds) showed as `10:16:25.000` in the time column, in both apps. Fractional
+  seconds after a dot or a comma are now read.
 
 ## [0.4.1] - 2026-10-22
 
