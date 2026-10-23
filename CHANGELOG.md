@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.5.1] - 2026-10-23
+
 ### Added
 
 - **Export the shown lines to CSV.** Logs → Export saves exactly what the view shows (the
@@ -16,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gets a leading ' so Excel shows it as text instead of running it; UTF-8 with a BOM so
   Excel reads non-English text. Only the lines in memory can be exported (the newest
   `buffer_size`, default 10,000), and the status line says so when the export hits it.
+
+### Fixed
+
+- **The settings panel sits beside the rail, on the left.** App settings and About had it on
+  the far right (copied from the DS5 configurator, whose rail is on the right); the narrow
+  window's drawer now slides in from the left too.
 
 ## [0.5.0] - 2026-10-23
 
@@ -413,7 +423,8 @@ SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight r
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.4...v0.4.0
