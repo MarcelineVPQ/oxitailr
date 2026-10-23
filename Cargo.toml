@@ -7,7 +7,7 @@ default-members = ["crates/oxitailr-core"]
 resolver = "2"
 
 [workspace.package]
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 authors = ["Oxitailr Contributors"]
 license = "MIT"

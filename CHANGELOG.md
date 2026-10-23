@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+_Nothing yet._
+
+## [0.5.0] - 2026-10-23
+
+Oxitailr is now one app: the desktop app, for Linux (AppImage) and Windows (installer). The terminal app is gone.
+
 ### Removed
 
 - **The terminal app.** Oxitailr is now the desktop app alone: the `crates/oxitailr`
@@ -399,7 +405,8 @@ SSH sources, bookmarks, the alerts UI, the settings view, and custom highlight r
 
 <!-- Compare links (only versions with release tags are linked; 0.2.11/0.2.12
      and pre-0.2.3 versions were never tagged and ship within adjacent tags). -->
-[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.1...v0.5.0
 [0.4.1]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.4...v0.4.0
 [0.3.4]: https://github.com/MarcelineVPQ/oxitailr/compare/v0.3.3...v0.3.4
