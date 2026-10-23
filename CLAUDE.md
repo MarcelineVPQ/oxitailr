@@ -59,6 +59,10 @@ installer, uploaded as `oxitailr-windows-setup`). Match formatting and keep clip
 
 App design rules:
 
+- **The rail is on the left, so a page's settings panel sits on the left beside it, with
+  the main view after it** (`.dk-split`, `accordion/Section.tsx`). Code copied from the
+  DS5 configurator, whose rail is on the right, must be mirrored, not taken as is.
+
 - Only the rows on screen are fetched from the back end; never ship the whole buffer.
 - The back end notifies the front end "changed" at most 10 times a second, and nothing
   ticks while idle (no polling timers).

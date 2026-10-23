@@ -229,9 +229,9 @@ export const togglePanel = () => window.dispatchEvent(new Event(PANEL_TOGGLE_EVE
 // cache: OK — key=SplitView page; invalidated=the panel shown or hidden, the task changes, the page unmounts; bound=one entry per mounted SplitView
 export const panelTasks = externalStore<ReadonlyMap<string, string | null>>(new Map());
 
-// A page with its main view on the left and the accordion panel on the
-// right. Below ~760 px (the page's width, a container query) the panel is a
-// drawer over the main view. The rail's item for the page shows and hides
+// A page with the accordion panel beside the rail (on the left) and its main
+// view after it. Below ~760 px (the page's width, a container query) the
+// panel is a drawer over the main view, sliding in from the rail's side. The rail's item for the page shows and hides
 // it (togglePanel), the one way on every page; Escape also closes the
 // drawer; remembered per page.
 // `mainKey`: a new value starts the main view at its top (another text).
@@ -308,9 +308,6 @@ export function SplitView({
   return (
     <div className="dk-split-host">
     <div className={`dk-split${hidden ? " panel-hidden" : " drawer-open"}`}>
-      <div className="dk-split-main" key={mainKey}>
-        {main}
-      </div>
       {/* Hidden: display none (wide) or the closed drawer, still laid out
           off-screen under visibility hidden (narrow); said hidden in both. */}
       <aside
@@ -338,6 +335,9 @@ export function SplitView({
           <Accordion state={state}>{children}</Accordion>
         </PanelContext.Provider>
       </aside>
+      <div className="dk-split-main" key={mainKey}>
+        {main}
+      </div>
     </div>
     </div>
   );

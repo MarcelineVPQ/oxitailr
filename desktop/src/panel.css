@@ -650,7 +650,9 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--dk-acc-w);
+  /* The panel beside the rail (oxitailr's rail is on the left; DS5's, on the
+     right, puts its panel on the right), the main view after it. */
+  grid-template-columns: var(--dk-acc-w) minmax(0, 1fr);
 }
 .dk-split.panel-hidden {
   grid-template-columns: minmax(0, 1fr);
@@ -672,7 +674,7 @@
   flex-direction: column;
   gap: 6px;
   padding: 10px;
-  border-left: 1px solid var(--border-default);
+  border-right: 1px solid var(--border-default);
   background: color-mix(in srgb, var(--bg-page) 70%, transparent);
 }
 .dk-split-head {
@@ -749,14 +751,14 @@
   .dk-split.panel-hidden .dk-split-panel {
     position: absolute;
     top: 0;
-    right: 0;
+    left: 0;
     bottom: 0;
     z-index: 4;
     display: flex;
     width: min(var(--dk-acc-w), 100%);
     background: var(--bg-page);
     box-shadow: var(--shadow-card-hover);
-    transform: translateX(calc(100% + 12px));
+    transform: translateX(calc(-100% - 12px));
     visibility: hidden;
     transition:
       transform 180ms ease-out,

@@ -1,5 +1,5 @@
-// App settings: the app's own settings, in the settings panel at the right
-// like the DS5 configurator's (SplitView + Sections). The main view shows the
+// App settings: the app's own settings, in the settings panel beside the rail
+// (on the left), on the DS5 configurator's framework (SplitView + Sections). The main view shows the
 // readouts (MainBlocks): the config file as the app read it, and where saved
 // passwords are kept. The panel holds settings and actions only. Every value
 // shown comes from the back end (config_summary, startup_settings, the secret
