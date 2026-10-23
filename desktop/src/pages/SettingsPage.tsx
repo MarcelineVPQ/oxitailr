@@ -1,6 +1,6 @@
 // Settings: the window's own look. Everything about what is tailed and how it
-// is shown comes from the same config file the terminal app reads, so this
-// page says where, instead of duplicating it.
+// is shown comes from the config file, so this page says where, instead of
+// duplicating it.
 import "../dialog.css";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
@@ -176,7 +176,7 @@ export default function SettingsPage() {
 
       <div className="page-section">
         <h2>From the config file</h2>
-        <Row label="Config file" sub="Shared with the terminal app" title={`The desktop app reads the same file as the terminal app: ${CONFIG}. Edit it, then Reload on the Logs page.`}>
+        <Row label="Config file" sub="Sources, filters, highlights and alerts" title={`Oxitailr reads ${CONFIG}. Edit it, then Reload on the Logs page.`}>
           <code className="page-code">{CONFIG}</code>
         </Row>
         <Row label="Sources" sub="Files and SSH sources to open at start" title="[[sources]] entries (with enabled / auto_open): local paths and SSH sources opened when the app starts." />

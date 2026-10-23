@@ -68,7 +68,7 @@ export interface Rows {
   alerts: number;
 }
 
-/** An SSH source to tail (the terminal app's "add SSH source" form). */
+/** An SSH source to tail (the SSH dialog's form). */
 export interface SshForm {
   name: string;
   host: string;

@@ -1,7 +1,7 @@
 # Oxitailr configuration example
 # Copy this to config.toml in the oxitailr config folder (~/.config/oxitailr/ on
-# Linux, %APPDATA%\oxitailr\ on Windows) and adjust it. The terminal app and the
-# desktop app both read it.
+# Linux, %APPDATA%\oxitailr\ on Windows) and adjust it. The app's Settings page
+# shows where it is; after editing, Reload on the Logs page.
 
 [general]
 # Maximum number of log entries to keep in memory
@@ -17,10 +17,9 @@ auto_parse_json = true
 # command line and no source below is marked auto_open = true.
 remember_last_session = true
 
-# NOTE: the terminal app also reads `show_source`. Keys from the old egui build
-# (follow, wrap_lines, color_enabled, theme, font_size, line_spacing) are
-# accepted for compatibility but ignored; the desktop app's theme is set in the
-# app.
+# NOTE: keys from older builds (show_source, follow, wrap_lines, color_enabled,
+# theme, font_size, line_spacing) are accepted for compatibility but ignored;
+# the theme is set in the app.
 
 # ============================================================================
 # SOURCES

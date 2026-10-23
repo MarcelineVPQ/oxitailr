@@ -19,12 +19,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxkbcommon-dev libssl-dev libgtk-3-dev
-
       - name: Cache cargo registry
         uses: actions/cache@v4
         with:
@@ -59,83 +53,12 @@ jobs:
             --reporters console \
             --ignore "**/*.md"
 
-  build-linux:
-    name: Build Linux
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
-            libxkbcommon-dev libssl-dev libgtk-3-dev
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-release-
-
-      - name: Build release
-        run: cargo build --release
-
-      - name: Upload Linux binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: oxitailr-linux-x86_64
-          path: target/release/oxitailr
-
-  build-windows:
-    name: Build Windows
-    runs-on: ubuntu-latest
-    needs: test
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: x86_64-pc-windows-gnu
-
-      - name: Install MinGW
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y mingw-w64
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-windows-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-windows-
-
-      - name: Build Windows release
-        run: cargo build --release --target x86_64-pc-windows-gnu
-
-      - name: Upload Windows binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: oxitailr-windows-x86_64
-          path: target/x86_64-pc-windows-gnu/release/oxitailr.exe
-
-  # The desktop app (desktop/) is a workspace member but not a default member,
-  # so the jobs above never build it. These two jobs do.
+  # The app (desktop/) is a workspace member but not a default member, so the
+  # test job above (the engine) never builds it. These two jobs do, and build
+  # the same AppImage and Windows installer as release.yml, so a broken one
+  # shows up before a tag.
   desktop:
-    name: Desktop app
+    name: App (Linux, AppImage)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -149,7 +72,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev \
-            librsvg2-dev libxdo-dev libssl-dev build-essential pkg-config
+            librsvg2-dev libxdo-dev libssl-dev build-essential pkg-config file
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -191,8 +114,27 @@ jobs:
       - name: Run tests
         run: cargo test -p oxitailr-desktop
 
+      # The cargo cache restores target/, including bundles from earlier builds.
+      - name: Clear old bundles
+        run: rm -rf target/release/bundle
+
+      # linuxdeploy is itself an AppImage: extract-and-run avoids needing FUSE
+      # on the runner; NO_STRIP avoids its old strip choking on newer libraries.
+      - name: Build AppImage
+        working-directory: desktop
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
+          NO_STRIP: true
+        run: npx tauri build --bundles appimage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: oxitailr-linux-appimage
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+
   desktop-windows:
-    name: Desktop app (Windows build)
+    name: App (Windows installer)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -234,6 +176,6 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: oxitailr-desktop-windows-setup
+          name: oxitailr-windows-setup
           path: target/release/bundle/nsis/*-setup.exe
           if-no-files-found: error

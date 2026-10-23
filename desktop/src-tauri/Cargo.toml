@@ -1,6 +1,6 @@
 [package]
 name = "oxitailr-desktop"
-description = "The oxitailr desktop app: the same engine as the terminal app, in a window"
+description = "Oxitailr: a fast, low-resource log viewer / live tailer (the app, on oxitailr-core)"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

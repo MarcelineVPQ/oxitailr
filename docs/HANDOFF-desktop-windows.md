@@ -27,14 +27,14 @@ Ship the Tauri desktop app (`oxitailr-desktop`) for Windows alongside the existi
 - **Bundler config.** `tauri.conf.json` has `bundle.targets: "all"`, so on Windows it produces both NSIS (`.exe` installer) and MSI. Decide whether to ship both. `icons/icon.ico` already exists. *Resolved: NSIS only (`--bundles nsis`).*
 - **Secret store on Windows.** `oxitailr-core/src/secrets.rs` uses `keyring-core` with `windows-native-keyring-store` (Credential Manager). It is untested on Windows.
 - **The tray backend is Linux-only.** The `tray-icon` + `ksni` dependency in `desktop/src-tauri/Cargo.toml` is behind `cfg(target_os = "linux")`, so Windows uses Tauri's default tray. Check that a single click still shows and hides the window there.
-- **Artifact naming.** Per CLAUDE.md, the existing names are `oxitailr-<ver>-x86_64[.exe]` and `Oxitailr-<ver>-x86_64.AppImage`. Choose a name for the desktop installer that doesn't collide with the terminal `.exe` (for example, `Oxitailr-Desktop-<ver>-x86_64-setup.exe`).
+- **Artifact naming.** *Resolved:* with the terminal app removed (2026-10-23) the release is two files, `Oxitailr-<ver>-x86_64.AppImage` and `Oxitailr-<ver>-x86_64-setup.exe` (CLAUDE.md, Release Process). 0.4.1's installer was named `Oxitailr-Desktop-0.4.1-x86_64-setup.exe`.
 
 ## Suggested order
 
 1. ~~Make CI run on #18.~~ Done: `ci.yml` triggers on PRs into any branch.
 2. ~~Merge #17, then #18.~~ Done 2026-10-22.
 3. ~~Add a `build-desktop-windows` job to `release.yml`.~~ Done: NSIS only. MSI was dropped because it refuses pre-release versions.
-4. Optional: add a Linux desktop bundle (`.deb`/AppImage) job. **Open.**
+4. ~~Add a Linux desktop bundle job.~~ Done 2026-10-23: the AppImage, in `ci.yml` and `release.yml`.
 5. Smoke-test on a real Windows machine. **In progress:**
    - ~~start-up, opening and tailing a file~~ (2026-10-23, Windows Server);
    - an SSH source with a saved secret (Credential Manager);

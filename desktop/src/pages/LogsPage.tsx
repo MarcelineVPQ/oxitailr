@@ -1,5 +1,4 @@
-// The log view: every control the terminal app has, as controls, plus every
-// one of its keys. Only the rows on screen are ever fetched (a virtualized
+// The log view: every action as a control, and as a key. Only the rows on screen are ever fetched (a virtualized
 // list over the back end's filtered view), so 50,000 lines cost the same as
 // 50. The back end says "changed" at most ten times a second; between those,
 // nothing here runs.
@@ -372,7 +371,7 @@ export default function LogsPage({ active, onStatus }: { active: boolean; onStat
     void refreshState();
   };
 
-  // ---- the terminal app's keys ----
+  // ---- the keys ----
   // lifetime: OK — the keydown listener is removed on unmount / when the handlers change
   useEffect(() => {
     if (!active) return;

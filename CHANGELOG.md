@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **The terminal app.** Oxitailr is now the desktop app alone: the `crates/oxitailr`
+  crate (ratatui/crossterm), its AppImage script and the terminal binaries in the release
+  are gone, along with the dependencies only it used (ratatui, crossterm, clap, glob,
+  futures, tracing-subscriber, rand). The engine, `oxitailr-core`, is unchanged.
+
+### Changed
+
+- **The release is two files:** `Oxitailr-<ver>-x86_64.AppImage` (the app for Linux, now
+  built by Tauri) and `Oxitailr-<ver>-x86_64-setup.exe` (the Windows installer, no longer
+  named "Desktop"). CI builds both on every push, so a broken one shows before a tag.
+- **The docs describe one app.**
+
 ### Fixed
 
 - **Timestamps keep their milliseconds.** The `2024-01-22 10:15:32` pattern stopped at the

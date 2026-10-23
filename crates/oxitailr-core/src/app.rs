@@ -1,6 +1,6 @@
 //! Headless application core: owns the log buffer, ingestion, sources, filters,
-//! and alerts. Frontend-agnostic — no terminal or GUI types live here, so the
-//! same core drives the TUI (and could drive anything else).
+//! and alerts. Frontend-agnostic — no GUI types live here, so the same core
+//! drives the app (and could drive anything else).
 
 use crate::alert::{AlertDispatcher, AlertEvent, AlertRule};
 use crate::config::{AlertConfig, AppConfig, HighlightConfig, SourceConfig};

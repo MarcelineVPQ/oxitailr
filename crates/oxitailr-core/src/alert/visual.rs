@@ -20,8 +20,8 @@ impl Default for VisualAlert {
 #[async_trait]
 impl Alerter for VisualAlert {
     async fn alert(&self, _entry: &LogEntry, _rule: &AlertRule) -> Result<()> {
-        // Visual alerts are handled by the TUI through AlertEvent
-        // This is a no-op here, the TUI will highlight matching entries
+        // Visual alerts are drawn by the front end from the AlertEvent;
+        // nothing to do here.
         Ok(())
     }
 }

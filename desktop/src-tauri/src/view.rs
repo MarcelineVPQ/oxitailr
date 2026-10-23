@@ -89,7 +89,7 @@ impl View {
     }
 
     /// The first position whose line satisfies `pred`, searching from `from`
-    /// in one direction and wrapping around (like the terminal app's n/N).
+    /// in one direction and wrapping around (the n/N keys).
     /// `from: None` starts at the edge: the first row going forward, the last
     /// row going back, each of them included.
     pub fn find(
@@ -157,8 +157,8 @@ pub fn row_text(line: &DisplayLine) -> String {
 }
 
 /// Split `msg` into segments: config highlight rules in their color, the search
-/// term marked (search wins on overlap). Ported from the terminal app's
-/// `styled_message`: byte offsets, and non-ASCII substring matches are skipped
+/// term marked (search wins on overlap). Byte offsets, and non-ASCII substring
+/// matches are skipped
 /// so slicing never lands inside a character.
 pub fn segments(msg: &str, highlights: &[HighlightMatcher], search_lower: &str) -> Vec<Seg> {
     if highlights.is_empty() && search_lower.is_empty() {

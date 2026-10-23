@@ -1,5 +1,4 @@
-//! Oxitailr desktop: the same engine as the terminal app (`oxitailr-core`),
-//! drawn in a window.
+//! Oxitailr: the `oxitailr-core` engine, drawn in a window.
 //!
 //! One `AppCore` lives behind a mutex. A background task drains the source
 //! and alert channels into it and tells the window "changed" at most ten
@@ -123,8 +122,8 @@ fn config_dir() -> PathBuf {
         .join("oxitailr")
 }
 
-/// The desktop app keeps its own session (open files), separate from the
-/// terminal app's session.json, so the two never overwrite each other.
+/// The app's session (open files). The name dates from when a terminal app
+/// kept its own session.json beside it; kept so existing sessions still load.
 fn session_path() -> PathBuf {
     config_dir().join("desktop-session.json")
 }
@@ -204,7 +203,7 @@ fn close_source(shared: State<Shared>, name: String) {
 }
 
 /// Set what the view shows. Returns the filter's error, if the text isn't a
-/// valid pattern (it still filters as a substring then, like the terminal app).
+/// valid pattern (it still filters as a substring then).
 #[tauri::command]
 async fn set_view(
     shared: State<'_, Shared>,
@@ -544,7 +543,7 @@ fn save(shared: &Shared) {
 }
 
 fn main() {
-    // Files named on the command line open at start, like the terminal app.
+    // Files named on the command line open at start (`oxitailr app.log`).
     let files: Vec<PathBuf> = std::env::args()
         .skip(1)
         .filter(|a| !a.starts_with('-'))
