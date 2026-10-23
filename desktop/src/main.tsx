@@ -9,6 +9,7 @@ import "@fontsource/jetbrains-mono/400.css";
 import "./tokens.css";
 import "./shell.css";
 import "./logs.css";
+import "./panel.css";
 import App from "./App";
 
 createRoot(document.getElementById("root")!).render(

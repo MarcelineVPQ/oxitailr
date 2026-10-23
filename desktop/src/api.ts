@@ -88,6 +88,32 @@ export interface SavedSecret {
   kind: "ssh" | "legacy" | "other";
 }
 
+/** The config file as the app read it (Settings → its main view). */
+export interface ConfigSummary {
+  /** Where it really is on this machine. */
+  path: string;
+  exists: boolean;
+  /** Set when it exists but couldn't be read: the app runs on the defaults. */
+  problem: string | null;
+  sources: number;
+  presets: number;
+  highlights: number;
+  alerts: number;
+  buffer_size: number;
+}
+
+/** The tray menu's switches (also on Settings → Startup). */
+export interface StartupSettings {
+  close_to_tray: boolean;
+  start_minimized: boolean;
+  notify_alerts: boolean;
+  launch_at_login: boolean;
+  /** The desktop has a system tray (without one, Close to tray and Start minimized can't act). */
+  tray: boolean;
+}
+
+export type StartupSwitch = Exclude<keyof StartupSettings, "tray">;
+
 export const api = {
   state: () => invoke<Snapshot>("state"),
   openPaths: (paths: string[]) => invoke<void>("open_paths", { paths }),
@@ -114,6 +140,11 @@ export const api = {
   /** The saved value: call only from an explicit reveal (eye) click. */
   revealSecret: (id: string) => invoke<string | null>("reveal_secret", { id }),
   forgetSecret: (id: string) => invoke<void>("forget_secret", { id }),
+  configSummary: () => invoke<ConfigSummary>("config_summary"),
+  openConfigFolder: () => invoke<void>("open_config_folder"),
+  startupSettings: () => invoke<StartupSettings>("startup_settings"),
+  /** Rejects with the reason when it couldn't be changed (launch at login, the OS said no). */
+  setStartupSetting: (key: StartupSwitch, value: boolean) => invoke<StartupSettings>("set_startup_setting", { key, value }),
 };
 
 /** Fires (coalesced, at most ~10/s) when lines or sources changed. */
@@ -121,3 +152,5 @@ export const onChanged = (fn: () => void): Promise<UnlistenFn> => listen("change
 /** The tray showed or hid the window: stop fetching while hidden. */
 export const onWindowVisible = (fn: (visible: boolean) => void): Promise<UnlistenFn> => listen<boolean>("window-visible", (e) => fn(e.payload));
 export const onAlert = (fn: (a: AlertOut) => void): Promise<UnlistenFn> => listen<AlertOut>("alert", (e) => fn(e.payload));
+/** A startup switch changed (from the tray menu or the Settings page). */
+export const onStartupSettings = (fn: (s: StartupSettings) => void): Promise<UnlistenFn> => listen<StartupSettings>("startup-settings", (e) => fn(e.payload));

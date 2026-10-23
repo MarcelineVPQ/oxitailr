@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Info, Lock, LockOpen, PanelLeftClose, PanelLeftOpen, ScrollText, Settings } from "lucide-react";
 import { useFlagPref } from "./storage";
+import { togglePanel } from "./accordion/Section";
 
 export type RailItem = "logs" | "settings" | "about";
 export const RAIL_ITEMS: readonly RailItem[] = ["logs", "settings", "about"];
@@ -19,14 +20,14 @@ export const RAIL_LOCK_KEY = "oxi.railLocked";
 
 const LABEL: Record<RailItem, string> = {
   logs: "Logs",
-  settings: "Settings",
+  settings: "App settings",
   about: "About",
 };
 
 const TIP: Record<RailItem, string> = {
   logs: "The lines from every open file",
-  settings: "Theme, and where the rest is configured",
-  about: "Version and keyboard shortcuts",
+  settings: "Theme, startup, saved passwords and the config file. Click again to show or hide the settings panel",
+  about: "Guide, changes, keyboard shortcuts and credits. Click again to show or hide its panel",
 };
 
 interface Props {
@@ -85,6 +86,8 @@ export default function AppRail({ active, onSelect, sources, alerts, tailing }: 
         title={badgeTip ? `${tip}\n${badgeTip}` : tip}
         aria-description={badgeTip}
         onClick={(e) => {
+          // The page you're on: its settings panel shows or hides (as in the DS5 configurator).
+          if (active === item) togglePanel();
           onSelect(item);
           // A pointer click (detail > 0), not Enter/Space: close the rail now.
           if (e.detail > 0) setPicked(true);

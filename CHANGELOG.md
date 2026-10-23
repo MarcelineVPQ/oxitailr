@@ -20,9 +20,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   built by Tauri) and `Oxitailr-<ver>-x86_64-setup.exe` (the Windows installer, no longer
   named "Desktop"). CI builds both on every push, so a broken one shows before a tag.
 - **The docs describe one app.**
+- **App settings and About follow the DS5 configurator's standard.** Each is a main view
+  and a settings panel of sections (live status line, keep-open pins, a panel menu; the
+  rail item of the page you're on shows or hides the panel), built on the same framework,
+  copied from the configurator.
+  - **App settings:** the main view shows the config file as the app read it (where it
+    really is on this computer, whether it was read or why not, and how many sources,
+    presets, highlight rules and alert rules it has) and where saved passwords are kept.
+    The panel has Appearance; Startup (Close to tray, Start minimized, Launch at login,
+    Notify me of alerts, the same switches as the tray menu and kept in step with it);
+    Saved passwords; and Config file, whose button opens the config folder.
+  - **About:** the Guide (README), the Changes, the keyboard shortcuts, what's coming
+    (TODO) and the Credits, with each text's chapters in its section and the 42 Pixel
+    Studios card. Links open in the system browser.
 
 ### Fixed
 
+- **The config's "Reload" advice was wrong.** Settings, the README and the example config
+  said edits apply after Reload on the Logs page; Reload re-reads the log files, not the
+  config. They now say edits apply the next time Oxitailr starts.
 - **Timestamps keep their milliseconds.** The `2024-01-22 10:15:32` pattern stopped at the
   seconds, so a line written as `10:16:25,423` (Python's logging puts a comma before the
   milliseconds) showed as `10:16:25.000` in the time column, in both apps. Fractional

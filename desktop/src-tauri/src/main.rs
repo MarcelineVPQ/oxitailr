@@ -128,15 +128,68 @@ fn session_path() -> PathBuf {
     config_dir().join("desktop-session.json")
 }
 
-fn load_config() -> AppConfig {
-    let path = config_dir().join("config.toml");
+fn config_path() -> PathBuf {
+    config_dir().join("config.toml")
+}
+
+/// Why the config wasn't used, when it wasn't (shown on the Settings page).
+struct ConfigProblem(Option<String>);
+
+fn load_config() -> (AppConfig, ConfigProblem) {
+    let path = config_path();
     if path.exists() {
         match config::load_config(&path) {
-            Ok(cfg) => return cfg,
-            Err(e) => tracing::warn!("config {} not loaded: {e}; using defaults", path.display()),
+            Ok(cfg) => return (cfg, ConfigProblem(None)),
+            Err(e) => {
+                tracing::warn!("config {} not loaded: {e}; using defaults", path.display());
+                return (AppConfig::default(), ConfigProblem(Some(e.to_string())));
+            }
         }
     }
-    AppConfig::default()
+    (AppConfig::default(), ConfigProblem(None))
+}
+
+/// What the Settings page shows about the config file: where it really is on
+/// this machine, whether it was read, and what the app took from it.
+#[derive(Serialize)]
+struct ConfigSummary {
+    path: String,
+    exists: bool,
+    /// The read failed: the app runs on the defaults, and this says why.
+    problem: Option<String>,
+    sources: usize,
+    presets: usize,
+    highlights: usize,
+    alerts: usize,
+    buffer_size: usize,
+}
+
+#[tauri::command]
+fn config_summary(shared: State<Shared>, problem: State<ConfigProblem>) -> ConfigSummary {
+    let h = shared.lock();
+    let c = &h.core.config;
+    let path = config_path();
+    ConfigSummary {
+        exists: path.is_file(),
+        path: path.display().to_string(),
+        problem: problem.0.clone(),
+        sources: c.sources.len(),
+        presets: c.filters.len(),
+        highlights: c.highlights.len(),
+        alerts: c.alerts.len(),
+        buffer_size: c.general.buffer_size,
+    }
+}
+
+/// Open the config folder in the file manager (made first if it isn't there yet).
+#[tauri::command]
+fn open_config_folder(app: AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = config_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not make {}: {e}", dir.display()))?;
+    app.opener()
+        .open_path(dir.display().to_string(), None::<&str>)
+        .map_err(|e| format!("could not open {}: {e}", dir.display()))
 }
 
 fn sorted_sources(core: &AppCore) -> Vec<SourceInfo> {
@@ -558,7 +611,8 @@ fn main() {
             .build()
             .expect("tokio runtime"),
     );
-    let (mut core, channels) = AppCore::new(runtime.clone(), load_config(), files);
+    let (config, config_problem) = load_config();
+    let (mut core, channels) = AppCore::new(runtime.clone(), config, files);
 
     if let Some(session) = load_session(&session_path()) {
         if core.started_empty && core.config.general.remember_last_session {
@@ -589,6 +643,8 @@ fn main() {
         ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_opener::init())
+        .manage(config_problem)
         .manage(host)
         .manage(Attention(AtomicU8::new(FOCUSED)))
         .invoke_handler(tauri::generate_handler![
@@ -612,6 +668,10 @@ fn main() {
             secrets_cmd::reveal_secret,
             secrets_cmd::forget_secret,
             secrets_cmd::ssh_secret_id,
+            config_summary,
+            open_config_folder,
+            tray::startup_settings,
+            tray::set_startup_setting,
         ])
         .setup(move |app| {
             tray::setup(app)?;

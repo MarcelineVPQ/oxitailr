@@ -91,7 +91,7 @@ to read back, and **Live** (or `G` / `End`) returns to the newest line.
 
 ## Configuration
 
-Config lives at `~/.config/oxitailr/config.toml` (on Windows `%APPDATA%\oxitailr\config.toml`; see `config.example.toml` for the full schema). The app's Settings page shows where; after editing it, Reload on the Logs page. It reads: `general.{buffer_size, show_timestamps, auto_parse_json, remember_last_session}`, the `[[sources]]` list (with `enabled` / `auto_open`), `[filters.<name>]` presets, `[[highlights]]` rules, and `[[alerts]]`. Keys from older builds — `show_source`, theme, fonts, line spacing, `wrap_lines` — are accepted but ignored.
+Config lives at `~/.config/oxitailr/config.toml` (on Windows `%APPDATA%\oxitailr\config.toml`; see `config.example.toml` for the full schema). App settings shows where it is and what was read from it; edits apply the next time Oxitailr starts. It reads: `general.{buffer_size, show_timestamps, auto_parse_json, remember_last_session}`, the `[[sources]]` list (with `enabled` / `auto_open`), `[filters.<name>]` presets, `[[highlights]]` rules, and `[[alerts]]`. Keys from older builds — `show_source`, theme, fonts, line spacing, `wrap_lines` — are accepted but ignored.
 
 ```toml
 [general]

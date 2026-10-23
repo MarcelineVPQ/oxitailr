@@ -1,14 +1,18 @@
-// Settings: the window's own look. Everything about what is tailed and how it
-// is shown comes from the config file, so this page says where, instead of
-// duplicating it.
+// App settings: the app's own settings, in the settings panel at the right
+// like the DS5 configurator's (SplitView + Sections). The main view shows the
+// readouts (MainBlocks): the config file as the app read it, and where saved
+// passwords are kept. The panel holds settings and actions only. Every value
+// shown comes from the back end (config_summary, startup_settings, the secret
+// store), never from a guess.
 import "../dialog.css";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Eye, EyeOff } from "lucide-react";
-import { Segmented, Row } from "../controls";
+import { AppWindow, Eye, EyeOff, FileCog, FileText, FolderOpen, KeyRound, Palette } from "lucide-react";
+import { Segmented, Toggle } from "../controls";
 import { useTheme, type Theme } from "../theme";
-import { api, type SavedSecret } from "../api";
-
-const CONFIG = "~/.config/oxitailr/config.toml";
+import { api, onStartupSettings, type ConfigSummary, type SavedSecret, type StartupSettings, type StartupSwitch } from "../api";
+import { Section, SplitView } from "../accordion/Section";
+import { MainBlock, useMainBlock } from "../accordion/MainBlock";
+import { pinScope, useAccordion } from "../accordion/useAccordion";
 
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; label: string; title?: string }> = [
   { value: "light", label: "Light" },
@@ -17,8 +21,8 @@ const THEME_OPTIONS: ReadonlyArray<{ value: Theme; label: string; title?: string
 ];
 
 const BACKEND_LABEL: Record<string, string> = {
-  keychain: "System password vault",
-  file: "Encrypted file in your config folder",
+  keychain: "The system password vault",
+  file: "An encrypted file in the config folder",
   memory: "Memory only (not saved)",
 };
 
@@ -27,6 +31,14 @@ const KIND_LABEL: Record<SavedSecret["kind"], string> = {
   legacy: "older version",
   other: "other",
 };
+
+// `tray`: needs a system tray (without one the window can't hide where it can come back).
+const STARTUP: ReadonlyArray<{ key: StartupSwitch; label: string; info: string; tray?: boolean }> = [
+  { key: "close_to_tray", label: "Close to tray", info: "Closing the window hides it to the tray; tailing and alerts carry on. Quit from the tray menu.", tray: true },
+  { key: "start_minimized", label: "Start minimized", info: "The window starts hidden in the tray.", tray: true },
+  { key: "launch_at_login", label: "Launch at login", info: "Oxitailr starts when you sign in, in the tray." },
+  { key: "notify_alerts", label: "Notify me of alerts", info: "An alert raises a desktop notification while the window isn't focused (at most one every 10 seconds)." },
+];
 
 /** One saved password: the eye fetches the real value on click; hiding drops it. */
 function SecretRow({ secret, onForgotten }: { secret: SavedSecret; onForgotten: () => void }) {
@@ -51,6 +63,7 @@ function SecretRow({ secret, onForgotten }: { secret: SavedSecret; onForgotten: 
       if (v === null) setError("This password is no longer saved.");
       else setRevealed(v);
     } catch {
+      // error: SHOWN — under the row
       if (mine === ticket.current) setError("The password could not be read.");
     } finally {
       if (mine === ticket.current) setBusy(false);
@@ -65,6 +78,7 @@ function SecretRow({ secret, onForgotten }: { secret: SavedSecret; onForgotten: 
       await api.forgetSecret(secret.id);
       onForgotten();
     } catch {
+      // error: SHOWN — under the row
       setError("The password could not be forgotten.");
       setConfirming(false);
     }
@@ -81,16 +95,7 @@ function SecretRow({ secret, onForgotten }: { secret: SavedSecret; onForgotten: 
       </span>
       <div className="dk-ctl">
         {shown && <code className="page-code dk-secret-value">{revealed}</code>}
-        <button
-          type="button"
-          className="dk-btn dk-icon-btn"
-          aria-label={eyeLabel}
-          title={eyeLabel}
-          aria-pressed={shown}
-          aria-busy={busy}
-          disabled={busy}
-          onClick={toggle}
-        >
+        <button type="button" className="dk-btn dk-icon-btn" aria-label={eyeLabel} title={eyeLabel} aria-pressed={shown} aria-busy={busy} disabled={busy} onClick={toggle}>
           {shown ? <EyeOff size={14} aria-hidden="true" /> : <Eye size={14} aria-hidden="true" />}
         </button>
         {confirming ? (
@@ -118,72 +123,190 @@ function SecretRow({ secret, onForgotten }: { secret: SavedSecret; onForgotten: 
   );
 }
 
-function SavedPasswords() {
+const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+export default function SettingsPage() {
+  const [theme, setTheme] = useTheme();
+  const [startup, setStartup] = useState<StartupSettings | null>(null);
+  const [startupError, setStartupError] = useState<string | null>(null);
+  const [config, setConfig] = useState<ConfigSummary | null>(null);
   const [backend, setBackend] = useState<string | null>(null);
   const [secrets, setSecrets] = useState<SavedSecret[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [secretsError, setSecretsError] = useState<string | null>(null);
+  const [folderError, setFolderError] = useState<string | null>(null);
+  const acc = useAccordion("app", pinScope("app"));
+  const configBlock = useMainBlock("app", "configFile");
+  const storeBlock = useMainBlock("app", "passwordStore");
 
-  const load = useCallback(async () => {
+  const loadSecrets = useCallback(async () => {
     try {
       const [b, list] = await Promise.all([api.secretBackend(), api.savedSecrets()]);
       setBackend(b);
       setSecrets(list);
-      setError(null);
+      setSecretsError(null);
     } catch {
-      setError("The saved passwords could not be listed.");
+      // error: SHOWN — in the Saved passwords section
+      setSecretsError("The saved passwords could not be listed.");
     }
   }, []);
 
+  // Everything the page shows, once on open; the startup switches then follow
+  // the tray menu live (the startup-settings event). Nothing polls.
+  // lifetime: OK — cleanup removes the startup-settings listener; `alive` drops late answers (unmount)
   useEffect(() => {
-    void load();
-  }, [load]);
+    let alive = true;
+    let off: (() => void) | undefined;
+    void api
+      .startupSettings()
+      .then((s) => alive && setStartup(s))
+      // error: SHOWN — in the Startup section
+      .catch((e) => alive && setStartupError(`The startup settings could not be read: ${e}`));
+    void api
+      .configSummary()
+      .then((c) => alive && setConfig(c))
+      // error: LOGGED-OK — the Config file block says "Reading…" until a reopen
+      .catch((e) => console.warn("config summary failed", e));
+    void loadSecrets();
+    void onStartupSettings((s) => setStartup(s)).then((u) => (alive ? (off = u) : u()));
+    return () => {
+      alive = false;
+      off?.();
+    };
+  }, [loadSecrets]);
 
-  return (
-    <div className="page-section">
-      <h2>Saved passwords</h2>
-      <Row label="Kept in">
-        <span>{backend ? (BACKEND_LABEL[backend] ?? backend) : "…"}</span>
-      </Row>
-      {error && (
-        <div className="dk-dialog-error" role="alert">
-          {error}
-        </div>
-      )}
-      {secrets && secrets.length === 0 && (
-        <p className="dk-dialog-note">No saved passwords. Tick “Remember password” when adding an SSH source.</p>
-      )}
-      {/* loop: HOT-PATH-OK — a handful of saved passwords */}
-      {secrets?.map((s) => <SecretRow key={s.id} secret={s} onForgotten={load} />)}
+  const setSwitch = async (key: StartupSwitch, value: boolean) => {
+    setStartupError(null);
+    try {
+      setStartup(await api.setStartupSetting(key, value));
+    } catch (e) {
+      // error: SHOWN — in the Startup section
+      setStartupError(String(e));
+    }
+  };
+
+  const openFolder = async () => {
+    setFolderError(null);
+    try {
+      await api.openConfigFolder();
+    } catch (e) {
+      // error: SHOWN — in the Config file section
+      setFolderError(String(e));
+    }
+  };
+
+  // Status lines: from the state the page already holds.
+  const themeStatus = THEME_OPTIONS.find((o) => o.value === theme)?.label ?? theme;
+  // loop: NOT-WORTH — N = 4 switches; render
+  const switches = startup ? STARTUP.filter((s) => startup.tray || !s.tray) : [];
+  const startupStatus = startup
+    ? // loop: NOT-WORTH — N ≤ 4 switches; render
+      switches
+        .filter((s) => startup[s.key])
+        .map((s) => s.label)
+        .join(" · ") || "All off"
+    : null;
+  const secretsStatus = secrets ? (secrets.length ? `${plural(secrets.length, "password")} saved` : "None saved") : null;
+  const configStatus = !config ? "Reading…" : config.problem ? "Couldn't be read: on the defaults" : config.exists ? "Read at start" : "Not created yet: on the defaults";
+
+  const main = (
+    <div className="dk-about-text">
+      <MainBlock state={configBlock} icon={FileText} title="Config file" status={configStatus} task={config?.problem ? "Couldn't be read" : null}>
+        {config && (
+          <>
+            {config.problem && (
+              <p className="dk-hint dk-inline-error" role="alert">
+                {config.problem}. Fix the file (see config.example.toml), then restart Oxitailr.
+              </p>
+            )}
+            <dl className="live-data-rows">
+              <div>
+                <dt>Where</dt>
+                <dd className="dk-dd-path">{config.path}</dd>
+              </div>
+              <div>
+                <dt>Sources</dt>
+                <dd>{config.sources}</dd>
+              </div>
+              <div>
+                <dt>Filter presets</dt>
+                <dd>{config.presets}</dd>
+              </div>
+              <div>
+                <dt>Highlight rules</dt>
+                <dd>{config.highlights}</dd>
+              </div>
+              <div>
+                <dt>Alert rules</dt>
+                <dd>{config.alerts}</dd>
+              </div>
+              <div>
+                <dt>Lines kept</dt>
+                <dd>{config.buffer_size.toLocaleString()}</dd>
+              </div>
+            </dl>
+            <p className="dk-hint">Edits to the file apply the next time Oxitailr starts.</p>
+          </>
+        )}
+      </MainBlock>
+      <MainBlock state={storeBlock} icon={KeyRound} title="Password store" status={backend ? (BACKEND_LABEL[backend] ?? backend) : "Reading…"}>
+        <p className="dk-hint">
+          {backend === "memory"
+            ? "No password vault answered and no file could be used, so a password is kept only until Oxitailr quits."
+            : "SSH passwords you choose to remember. They are never written to the config file."}
+        </p>
+      </MainBlock>
     </div>
   );
-}
 
-export default function SettingsPage() {
-  const [theme, setTheme] = useTheme();
   return (
-    <section className="page" aria-labelledby="settings-title">
-      <header className="page-head">
-        <h1 id="settings-title">Settings</h1>
-        <p className="page-sub">The window's look. The rest is in the config file.</p>
-      </header>
-
-      <div className="page-section">
-        <h2>Appearance</h2>
-        <Segmented label="Theme" value={theme} options={THEME_OPTIONS} onChange={setTheme} />
-      </div>
-
-      <SavedPasswords />
-
-      <div className="page-section">
-        <h2>From the config file</h2>
-        <Row label="Config file" sub="Sources, filters, highlights and alerts" title={`Oxitailr reads ${CONFIG}. Edit it, then Reload on the Logs page.`}>
-          <code className="page-code">{CONFIG}</code>
-        </Row>
-        <Row label="Sources" sub="Files and SSH sources to open at start" title="[[sources]] entries (with enabled / auto_open): local paths and SSH sources opened when the app starts." />
-        <Row label="Filters and presets" sub="Named filters you can apply from Logs" title="[filters.<name>] tables: a named filter, applied from the preset menu on the Logs page." />
-        <Row label="Highlight rules" sub="Patterns colored in every line" title="[[highlights]] entries: a pattern and a color; matching text is colored in the log view." />
-        <Row label="Alerts" sub="Patterns that raise an alert" title="[[alerts]] entries: a pattern that raises an alert (the bell on the Logs page and a badge on the rail) when a new line matches." />
-      </div>
-    </section>
+    <SplitView page="app" main={main} title="App settings" sub="This computer only · saved as you change them" state={acc}>
+      <Section id="appearance" icon={Palette} title="Appearance" status={themeStatus}>
+        {() => <Segmented label="Theme" value={theme} options={THEME_OPTIONS} onChange={setTheme} />}
+      </Section>
+      <Section id="startup" icon={AppWindow} title="Startup" status={startupStatus} idle={!startup && !startupError}>
+        {() => (
+          <>
+            {startupError && (
+              <p className="dk-hint dk-inline-error" role="alert">
+                {startupError}
+              </p>
+            )}
+            {/* loop: NOT-WORTH — N = 4 switches; only while Startup is open */}
+            {startup && switches.map((s) => <Toggle key={s.key} label={s.label} info={s.info} value={startup[s.key]} onChange={(v) => void setSwitch(s.key, v)} />)}
+            {startup && <p className="dk-hint">{startup.tray ? "The same switches as the tray menu." : "This desktop has no system tray, so the window always stays shown (no Close to tray or Start minimized)."}</p>}
+          </>
+        )}
+      </Section>
+      <Section id="passwords" icon={KeyRound} title="Saved passwords" status={secretsStatus} idle={!!secrets && secrets.length === 0 && !secretsError}>
+        {() => (
+          <>
+            {secretsError && (
+              <p className="dk-hint dk-inline-error" role="alert">
+                {secretsError}
+              </p>
+            )}
+            {/* loop: HOT-PATH-OK — a handful of saved passwords; only while the section is open */}
+            {secrets?.map((s) => <SecretRow key={s.id} secret={s} onForgotten={loadSecrets} />)}
+          </>
+        )}
+      </Section>
+      <Section id="config" icon={FileCog} title="Config file" status="Sources, filters, highlights, alerts">
+        {() => (
+          <>
+            <p className="dk-hint">Open its folder to edit config.toml (config.example.toml lists every setting).</p>
+            <div className="dk-row-btns">
+              <button type="button" className="dk-btn" onClick={() => void openFolder()}>
+                <FolderOpen size={14} aria-hidden="true" /> Open the config folder
+              </button>
+            </div>
+            {folderError && (
+              <p className="dk-hint dk-inline-error" role="alert">
+                {folderError}
+              </p>
+            )}
+          </>
+        )}
+      </Section>
+    </SplitView>
   );
 }

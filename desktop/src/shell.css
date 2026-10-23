@@ -509,50 +509,7 @@ html[data-theme="dark"] .dk {
   }
 }
 
-/* ---- Plain pages (Settings, About) ----
-   <section class="page"> → <header class="page-head"><h1/><p class="page-sub"/></header>
-   then <div class="page-section"><h2/>rows…</div>. The page scrolls; its
-   content keeps a readable width. */
-.page {
-  min-height: 0;
-  overflow: hidden auto;
-  padding: 20px 24px 32px;
-  font-size: var(--dk-font);
-}
-.page > * {
-  max-width: 640px;
-}
-.page-head {
-  margin-bottom: 14px;
-}
-.page-head h1 {
-  margin: 0;
-  color: var(--text-strong);
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-}
-.page-sub {
-  margin: 4px 0 0;
-  color: var(--text-muted);
-}
-.page-section {
-  margin-top: 18px;
-  padding: 4px 14px;
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  background: var(--bg-panel);
-}
-.page-section h2 {
-  margin: 10px 0 4px;
-  color: var(--text-eyebrow);
-  font-family: var(--font-display);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
+/* Inline code-like values (a saved password shown on request). */
 .page-code {
   padding: 2px 6px;
   border-radius: 4px;
@@ -561,47 +518,4 @@ html[data-theme="dark"] .dk {
   font-family: var(--font-mono);
   font-size: 12px;
   white-space: nowrap;
-}
-.page a {
-  color: var(--dk-accent-text);
-}
-
-/* About */
-.about-version {
-  font-family: var(--font-mono);
-  font-size: 12px;
-}
-.about-lede {
-  margin: 0 0 6px;
-  color: var(--text-body);
-  font-size: 14px;
-}
-.about-keys {
-  width: 100%;
-  margin: 2px 0 8px;
-  border-collapse: collapse;
-}
-.about-keys td {
-  padding: 5px 0;
-  border-top: 1px solid var(--border-subtle);
-  vertical-align: middle;
-}
-.about-keys tr:first-child td {
-  border-top: 0;
-}
-.about-keys td:first-child {
-  width: 120px;
-}
-.about-keys kbd {
-  display: inline-block;
-  min-width: 22px;
-  padding: 1px 6px;
-  border: 1px solid var(--border-input);
-  border-bottom-width: 2px;
-  border-radius: 4px;
-  background: var(--bg-input);
-  color: var(--text-strong);
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  text-align: center;
 }

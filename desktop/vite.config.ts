@@ -9,6 +9,8 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
+    // About bundles the repo's README, CHANGELOG and TODO (../*.md).
+    fs: { allow: [".."] },
     watch: {
       // The Rust side rebuilds itself; watching it only wakes Vite for nothing.
       ignored: ["**/src-tauri/**"],

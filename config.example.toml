@@ -1,7 +1,7 @@
 # Oxitailr configuration example
 # Copy this to config.toml in the oxitailr config folder (~/.config/oxitailr/ on
-# Linux, %APPDATA%\oxitailr\ on Windows) and adjust it. The app's Settings page
-# shows where it is; after editing, Reload on the Logs page.
+# Linux, %APPDATA%\oxitailr\ on Windows) and adjust it. App settings shows where
+# it is (and opens its folder); edits apply the next time Oxitailr starts.
 
 [general]
 # Maximum number of log entries to keep in memory

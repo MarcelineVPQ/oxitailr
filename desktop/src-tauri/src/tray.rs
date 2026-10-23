@@ -56,8 +56,10 @@ impl Default for DesktopSettings {
 
 /// Handles kept for the life of the app.
 struct TrayState {
-    /// Keeps the tray icon alive; dropping it removes the icon.
-    _tray: TrayIcon,
+    /// Keeps the tray icon alive; dropping it removes the icon. None when the
+    /// desktop has no tray host (stock GNOME, a bare window manager): the app
+    /// runs without one, and nothing hides the window where it can't be got back.
+    tray: Option<TrayIcon>,
     toggle: MenuItem<Wry>,
     status: MenuItem<Wry>,
     close_to_tray: CheckMenuItem<Wry>,
@@ -240,10 +242,17 @@ pub fn setup(app: &App) -> tauri::Result<()> {
     if let Some(icon) = app.default_window_icon() {
         builder = builder.icon(icon.clone());
     }
-    let tray = builder.build(app)?;
+    let tray = match builder.build(app) {
+        Ok(tray) => Some(tray),
+        Err(e) => {
+            tracing::warn!("no system tray ({e}); running without one");
+            None
+        }
+    };
+    let has_tray = tray.is_some();
 
     app.manage(TrayState {
-        _tray: tray,
+        tray,
         toggle,
         status,
         close_to_tray,
@@ -254,7 +263,8 @@ pub fn setup(app: &App) -> tauri::Result<()> {
         settings_path: path,
     });
 
-    if start_hidden {
+    // Without a tray a hidden window couldn't be brought back: always shown.
+    if start_hidden && has_tray {
         hide_main(handle);
     } else {
         show_main(handle);
@@ -272,7 +282,7 @@ pub fn on_window_event(window: &Window, event: &WindowEvent) {
         let app = window.app_handle();
         let to_tray = app
             .try_state::<TrayState>()
-            .is_some_and(|s| s.settings().close_to_tray);
+            .is_some_and(|s| s.tray.is_some() && s.settings().close_to_tray);
         if to_tray {
             api.prevent_close();
             hide_main(app);
@@ -354,6 +364,87 @@ fn on_tray_event(tray: &TrayIcon, event: TrayIconEvent) {
     }
 }
 
+/// Event sent to the page when a startup switch changes (from the tray menu
+/// or the Settings page), so the page's switches follow the menu's.
+const STARTUP_EVENT: &str = "startup-settings";
+
+/// The tray menu's switches, for the Settings page's Startup section.
+#[derive(Debug, Clone, Serialize)]
+pub struct StartupSettings {
+    pub close_to_tray: bool,
+    pub start_minimized: bool,
+    pub notify_alerts: bool,
+    pub launch_at_login: bool,
+    /// The desktop has a system tray. Without one, Close to tray and Start
+    /// minimized do nothing (the window can't hide where it can't come back).
+    pub tray: bool,
+}
+
+fn startup_now(app: &AppHandle) -> StartupSettings {
+    let state = app.try_state::<TrayState>();
+    let tray = state.as_ref().is_some_and(|t| t.tray.is_some());
+    let s = state.map(|t| t.settings()).unwrap_or_default();
+    let launch_at_login = autolaunch(app)
+        .and_then(|m| m.is_enabled().ok())
+        .unwrap_or(false);
+    StartupSettings {
+        close_to_tray: s.close_to_tray,
+        start_minimized: s.start_minimized,
+        notify_alerts: s.notify_alerts,
+        launch_at_login,
+        tray,
+    }
+}
+
+fn startup_changed(app: &AppHandle) {
+    let _ = app.emit(STARTUP_EVENT, startup_now(app));
+}
+
+/// The four switches as they are now (launch at login: the OS's own registration).
+#[tauri::command]
+pub fn startup_settings(app: AppHandle) -> StartupSettings {
+    startup_now(&app)
+}
+
+/// Change one switch from the Settings page; the tray menu's check mark follows.
+#[tauri::command]
+pub fn set_startup_setting(
+    app: AppHandle,
+    key: String,
+    value: bool,
+) -> Result<StartupSettings, String> {
+    let state = app
+        .try_state::<TrayState>()
+        .ok_or("the tray isn't set up")?;
+    match key.as_str() {
+        "close_to_tray" => {
+            state.update(|s| s.close_to_tray = value);
+            let _ = state.close_to_tray.set_checked(value);
+        }
+        "start_minimized" => {
+            state.update(|s| s.start_minimized = value);
+            let _ = state.start_minimized.set_checked(value);
+        }
+        "notify_alerts" => {
+            state.update(|s| s.notify_alerts = value);
+            let _ = state.notify.set_checked(value);
+        }
+        "launch_at_login" => {
+            let manager = autolaunch(&app).ok_or("the autostart plugin is not registered")?;
+            let result = if value {
+                manager.enable()
+            } else {
+                manager.disable()
+            };
+            result.map_err(|e| format!("could not change launch at login: {e}"))?;
+            let _ = state.launch_at_login.set_checked(value);
+        }
+        other => return Err(format!("unknown setting {other}")),
+    }
+    startup_changed(&app);
+    Ok(startup_now(&app))
+}
+
 fn on_menu_event(app: &AppHandle, event: MenuEvent) {
     let Some(state) = app.try_state::<TrayState>() else {
         return;
@@ -387,7 +478,11 @@ fn on_menu_event(app: &AppHandle, event: MenuEvent) {
                 let _ = state.launch_at_login.set_checked(!on);
             }
         }
-        _ => {}
+        _ => return,
+    }
+    // A switch changed from the menu: the Settings page follows.
+    if ![ID_TOGGLE, ID_QUIT].contains(&event.id().as_ref()) {
+        startup_changed(app);
     }
 }
 
