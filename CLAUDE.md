@@ -2,24 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Oxitailr is a **terminal** (TUI) log viewer / live tailer built in Rust on `ratatui`/`crossterm`,
-with local-file and SSH log sources.
+Oxitailr is a log viewer / live tailer built in Rust, with local-file and SSH log sources, in
+two forms on one engine: a **terminal app** (`ratatui`/`crossterm`) and a **desktop app**
+(Tauri 2 + React), both on the `oxitailr-core` library. v0.3.0 replaced the original egui GUI
+with the terminal app; v0.4 split the engine into `oxitailr-core` and added the desktop app.
+Nothing from the egui era is left (no `eframe`, `TailLoggerApp` or `src/ui/`).
 
-> **As of v0.3.0 the frontend was rewritten from egui to a Ratatui TUI.** The headless core is
-> `src/app.rs` (`AppCore`: log buffer, ingestion, sources, filters, alerts); the terminal frontend
-> is `src/tui.rs` (event-driven `tokio::select!` loop over crossterm input + the source/alert
-> channels). The backend modules (`src/source/`, `src/parser/`, `src/filter/`, `src/alert/`,
-> `src/config/`, `src/state/`, `src/credentials.rs`, `src/models/`) are unchanged from the egui era.
-> The "Architecture" notes below that reference `eframe`/`egui`/`TailLoggerApp`/`src/ui/` are
-> **historical** — that layer was removed. Some features (SSH UI, bookmarks, alerts UI, settings)
-> are backend-ready but not yet wired into the TUI (`#![allow(dead_code)]` covers them meanwhile).
+## Workflow: straight to `main`, no PRs
+
+Marcy works alone on this repo: **build, commit to `main`, push, repeat.** No feature
+branches, no pull requests, no stacked PRs; they are extra steps with nothing to gain for one
+person. CI runs on every push to `main` and is the check: if it goes red, fix it in the next
+commit. Ask before committing and pushing.
 
 ## Workspace layout
 
 The repo is a Cargo workspace (since the 0.4 cycle):
 
 - `crates/oxitailr-core/` — the engine, a library: `source/`, `parser/`, `filter/`, `alert/`,
-  `config/`, `state/`, `models/`, `credentials.rs`, and `app.rs` (`AppCore`). Its tests,
+  `config/`, `state/`, `models/`, `secrets.rs`, and `app.rs` (`AppCore`). Its tests,
   including `tests/integration_tests.rs`, live here.
 - `crates/oxitailr/` — the terminal app: `main.rs` (CLI) and `tui.rs`. It depends on
   `oxitailr-core` and builds the `oxitailr` binary (still `target/release/oxitailr`).
@@ -75,8 +76,7 @@ cargo fmt -- --check
 cargo clippy -- -D warnings
 ```
 
-CI (`.github/workflows/ci.yml`) runs on pushes to `main` and on PRs into any branch (so stacked
-PRs get CI too). It runs `cargo test`, `cargo fmt -- --check`, and `cargo clippy -- -D warnings`
+CI (`.github/workflows/ci.yml`) runs on every push to `main`. It runs `cargo test`, `cargo fmt -- --check`, and `cargo clippy -- -D warnings`
 for the default members, plus a `desktop` job (npm typecheck + build, then fmt/clippy/test for
 `-p oxitailr-desktop`) and a `desktop-windows` job (`npx tauri build --bundles nsis` on
 `windows-latest`, uploading the installer as the `oxitailr-desktop-windows-setup` artifact).
@@ -84,60 +84,66 @@ Match formatting and keep clippy clean before pushing.
 
 ## Architecture
 
-Single-threaded egui UI + a multi-threaded Tokio runtime for I/O, communicating **only over
-mpsc channels**. Understanding that boundary is the key to working here.
+One engine, two front ends. The engine never draws anything; each front end owns its event
+loop and talks to the engine's I/O tasks **only over channels**.
 
-- **Entry / runtime** (`src/main.rs::main`, ~line 2655): parses CLI args (`clap`), loads the
-  TOML config, builds a multi-threaded Tokio `Runtime` wrapped in `Arc`, constructs
-  `TailLoggerApp`, and hands off to `eframe::run_native`.
+- **`AppCore`** (`crates/oxitailr-core/src/app.rs`): the headless core. It holds the log
+  buffer (`LogState`, a `VecDeque` ring capped at `general.buffer_size`, default 10,000), the
+  filter (`FilterEngine`, the filter text, the per-level mask), the compiled highlight rules,
+  the alert rules, the config, and `source_infos` (each source's status). `AppCore::new`
+  returns it with a `CoreChannels` (the source-event and alert receivers), kept separate so a
+  front end can `select!` on them without borrowing the core. `ingest(event)` parses a line,
+  appends it, and runs the alert rules; `passes_filter(line)` is the view test both front ends
+  use. Sources are added with `add_local_source` / `add_ssh_source` and removed by sending
+  `SourceCommand::Remove` on `source_cmd_tx`.
+- **Sources** (`source/`): the async `Source` trait; `start(sender)` spawns a Tokio task that
+  sends `SourceEvent::{Line, Lines, StatusChange, Error}`. `SourceManager` owns them.
+  - `LocalFileSource` (`local.rs`): reads the existing content, then tails with a `notify`
+    watcher **plus a polling fallback** (`POLL_INTERVAL_MS`), so a missed event can't stall
+    it; detects rotation and truncation (inode + size).
+  - `SshSource` (`ssh.rs`): tails a remote file over `russh`; key auth, or a password given
+    directly or found in the secret store.
+- **Parsers** (`parser/`): `JsonParser` for brace-wrapped lines (when `auto_parse_json`),
+  else `PlainParser` (timestamp patterns, ISO 8601 / `YYYY-MM-DD HH:MM:SS[.,fff]` / syslog,
+  and the level word). Output is a `LogEntry` (`models/`).
+- **Alerts** (`alert/`): `AlertDispatcher` matches rules and sends `AlertEvent`s on its own
+  channel; actions in `desktop.rs` / `sound.rs` / `visual.rs` / `webhook.rs`.
+- **Secrets** (`secrets.rs`): SSH passwords, recoverable (they're sent to the server), never
+  in the config. The OS vault through `keyring-core` (Windows Credential Manager, macOS
+  Keychain, the Secret Service over pure-Rust zbus), with the ids (never values) in
+  `secrets-index.json`; or, with no vault, an AES-256-GCM file (`secrets.vault`) whose key is
+  in the vault or in `vault.key`. Values travel as `SecretString`, never in a log or error.
+  `OXITAILR_SECRET_BACKEND=file` forces the file backend (tests, services). It replaced the
+  old `credentials.rs`; `credentials.enc` is migrated on first use.
+- **Config & state** (`config/`, `state/`): TOML at `<config_dir>/oxitailr/config.toml`;
+  the terminal app's session (open files, bookmarks) in `session.json`, the desktop app's in
+  `desktop-session.json`.
 
-- **`TailLoggerApp`** (`src/main.rs`, ~2,700 lines): the central app object. It holds nearly
-  all state *and* all UI rendering, and implements `eframe::App::update` (~line 1473), which is
-  the per-frame loop: drain events → handle dialogs/input → render panels →
-  `request_repaint_after(update_interval_ms)`. This file is intentionally being broken up; see
-  "Known issues" below.
+**Terminal app** (`crates/oxitailr/src/`): `main.rs` parses the CLI (`clap`: FILEs with glob
+expansion, `-c` config, `-m` buffer size), builds the Tokio runtime and the core, and calls
+`tui::run`. `tui.rs` is one event-driven `tokio::select!` loop over crossterm input, the
+source events and the alerts; it redraws only when something changed.
 
-- **Sources** (`src/source/`): the `Source` trait (`mod.rs`) is `async` with
-  `start(sender)`/`stop()`. `start()` spawns a Tokio task that emits `SourceEvent::{Line,
-  StatusChange, Error}` into a shared `mpsc::Sender`. `SourceManager` owns the
-  `Box<dyn Source>` set and hands the UI a single `mpsc::Receiver` via `take_event_receiver()`.
-  - `LocalFileSource` (`local.rs`): reads existing content, then tails via a `notify`
-    filesystem watcher; includes log-rotation/truncation detection (inode + size).
-  - `SshSource` (`ssh.rs`): tails a remote file over `russh`.
-
-- **Ingestion** (`src/main.rs::process_events`, ~line 971): runs each frame, drains the source
-  receiver, parses each line, appends to `LogState`, and dispatches alert checks. `LogState`
-  (`src/main.rs:140`) is a `VecDeque` ring buffer capped at `buffer_size` (default 10,000).
-
-- **Parsers** (`src/parser/`): `Parser` trait → `JsonParser` / `PlainParser`.
-  `auto_detect_parser()` picks JSON when a line is brace-wrapped, else plain. Output is a
-  `LogEntry` (`src/models/`, with `LogLevel`).
-
-- **Filter & highlight** (`src/filter/`): `FilterEngine` + `FilterRule` (regex / level)
-  decide which entries render; highlight rules colorize matches.
-
-- **Alerts** (`src/alert/`): `AlertDispatcher` matches rules against entries asynchronously and
-  emits `AlertEvent`s on its own mpsc channel (drained by the UI for the visual indicator).
-  Actions live in `desktop.rs` / `sound.rs` / `visual.rs` / `webhook.rs`.
-
-- **Config & persistence**: TOML config at `<config_dir>/oxitailr/config.toml`
-  (`src/config/`); session state — open files, window geometry, bookmarks — at
-  `<config_dir>/oxitailr/session.json` (`src/state/session.rs`). SSH passwords are encrypted
-  via `src/credentials.rs` (argon2 + aes-gcm), never stored in plaintext config.
+**Desktop app** (`desktop/`): `src-tauri/src/main.rs` keeps one `AppCore` behind a mutex and
+exposes Tauri commands. A `pump` task drains the channels into the core and emits `changed`
+at most every 100 ms (500 ms when another app is in front, nothing while hidden). The page
+then asks for **only the rows on screen** (`rows(start, count)`) from `view.rs`, which keeps
+the passing line numbers and extends them incrementally. `tray.rs` is the tray icon and menu
+and the window behaviour (close to tray, start minimized, launch at login); `ssh.rs` and
+`secrets_cmd.rs` are the SSH form and the saved-password commands. The front end is in
+`desktop/src` (`api.ts` is its only `invoke` caller; `pages/LogsPage.tsx` is the log view).
 
 ### Threading rule
-Source/alert tasks run on the Tokio runtime; the UI runs on the main thread. They must talk
-through channels. Do **not** add blocking work to the egui frame loop.
+Source and alert tasks run on the Tokio runtime. A front end's loop must never block on
+them: talk through the channels, and in the desktop app never hold the core's lock across an
+`await` or for a large batch (`EVENTS_PER_LOCK`).
 
-## Known issues / in-progress work
+## Known gaps
 
-See `RESUME_NOTES.md` for an active diagnosis + plan. In short:
-- `LocalFileSource` relies solely on `notify` with no polling fallback, so live tailing can
-  stall until "Reload" forces a full re-read.
-- Wrap-mode rendering isn't virtualized and the filtered list is re-cloned every frame.
-- Some UI actions (`reload_sources`, add/remove source) currently call `runtime.block_on(...)`
-  on the UI thread — this violates the threading rule above and freezes the window; it is slated
-  to move behind a command channel.
+- No in-app editors for filter presets, highlight rules or alerts (the config file only).
+- The terminal app's SSH form has no password field (key auth only).
+- The desktop app is a preview: not yet tried end to end on Windows (see
+  `docs/HANDOFF-desktop-windows.md`), no Linux package, no self-update.
 
 ## Release Process
 
@@ -161,7 +167,7 @@ GitHub release with generated notes. The names must stay exactly:
 - [ ] Bump `version` in `desktop/package.json` and `desktop/package-lock.json`
 - [ ] Move `[Unreleased]` in `CHANGELOG.md` to the new version and update the compare links at the bottom
 - [ ] Update the version in the `README.md` download instructions and the desktop app section
-- [ ] Merge the bump through a `release/vX.Y.Z` PR
+- [ ] Commit the bump to `main`, push, and wait for CI to go green
 - [ ] Tag `main` and push the tag:
 
 ```bash

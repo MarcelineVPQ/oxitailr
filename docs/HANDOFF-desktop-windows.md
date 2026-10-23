@@ -1,12 +1,13 @@
 # Handoff: Windows build of the desktop app
 
-Written 2026-10-19. Updated 2026-10-22, after v0.4.0 shipped.
+Written 2026-10-19. Updated 2026-10-22, after v0.4.0 shipped, and 2026-10-23 after the first
+real Windows run.
 
 ## Goal
 
 Ship the Tauri desktop app (`oxitailr-desktop`) for Windows alongside the existing release artifacts.
 
-## Where things stand (2026-10-22)
+## Where things stand (2026-10-23)
 
 - **Released in v0.4.0.** `release.yml` has a `build-desktop-windows` job (`windows-latest`,
   `npx tauri build --bundles nsis`). It publishes `Oxitailr-Desktop-<ver>-x86_64-setup.exe` next to
@@ -14,8 +15,10 @@ Ship the Tauri desktop app (`oxitailr-desktop`) for Windows alongside the existi
 - **Merged:** #17 (the `oxitailr-core` split), #18 (the desktop app and secret store) and #19 (the 0.4.0 bump).
 - **CI:** `ci.yml` now runs on PRs into any branch. Its `desktop-windows` job builds the same NSIS
   installer and uploads it as the `oxitailr-desktop-windows-setup` artifact.
-- **Not yet verified on Windows.** The installer has compiled and bundled in CI, but nobody has run it on a
-  real Windows machine. The first real test is an overnight run started 2026-10-22.
+- **Runs on Windows.** The v0.4.1 installer was installed on a real Windows Server on 2026-10-23,
+  and the app tails a busy production log there: level colors, the rail and live follow all work.
+  That run found one bug, now fixed: timestamps lost their milliseconds (`10:16:25,423` showed as
+  `.000`; PR #23). Still unchecked: the tray, saved SSH passwords and uninstall (step 5 below).
 
 ## Things already known
 
@@ -32,6 +35,9 @@ Ship the Tauri desktop app (`oxitailr-desktop`) for Windows alongside the existi
 2. ~~Merge #17, then #18.~~ Done 2026-10-22.
 3. ~~Add a `build-desktop-windows` job to `release.yml`.~~ Done: NSIS only. MSI was dropped because it refuses pre-release versions.
 4. Optional: add a Linux desktop bundle (`.deb`/AppImage) job. **Open.**
-5. Smoke-test on a real Windows machine: start-up, opening/tailing a file, an SSH source with a saved
-   secret (Credential Manager), the tray (does a single click show and hide the window?), and uninstall. **Open**, in progress.
+5. Smoke-test on a real Windows machine. **In progress:**
+   - ~~start-up, opening and tailing a file~~ (2026-10-23, Windows Server);
+   - an SSH source with a saved secret (Credential Manager);
+   - the tray: does a single click show and hide the window?
+   - uninstall.
 6. ~~Bump the version and tag a release.~~ Done: v0.4.0.
